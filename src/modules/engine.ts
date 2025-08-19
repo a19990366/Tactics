@@ -9,10 +9,12 @@ import {
   BuffSpec,
   AttackType,
 } from "./types";
-import { Templates, CLASS_LIST, SHORT, ClassKey } from "./templates";
+import { Templates, SHORT, ClassKey } from "./templates";
+import { log } from "./logs";
 
 export const CRIT_DMG = 1.5;
 export const CR_CAP = 0.4;
+export const BK_CAP = 0.4;
 export const HIT_SLOPE = 0.4;
 export const KP = 1.0;
 export const KM = 1.0;
@@ -154,7 +156,7 @@ export function buildBaseFromTemplate(tpl: UnitTemplate) {
   });
 
   base.CR = clamp(base.CR, 0, CR_CAP);
-  base.BLK = clamp(base.BLK, 0, 0.4);
+  base.BLK = clamp(base.BLK, 0, BK_CAP);
 
   return base;
 }
@@ -199,7 +201,7 @@ export function getStat(u: Unit, key: StatKey) {
   for (const b of u.buffs) if (b.mul && b.mul[key] != null) mul *= b.mul[key]!;
   v *= mul;
   if (key === "CR") v = clamp(v, 0, CR_CAP);
-  if (key === "BLK") v = clamp(v, 0, 0.4);
+  if (key === "BLK") v = clamp(v, 0, BK_CAP);
   return v;
 }
 
@@ -321,6 +323,7 @@ export function applyDamage(gs: GameState, target: Unit, dmg: number) {
   target.hp = Math.max(0, target.hp - dmg);
   if (target.hp === 0) {
     target.alive = false;
+    log(`${target.id} 陣亡`);
   }
 }
 
@@ -588,7 +591,7 @@ export function createTeamUnits(
   classList: ClassKey[],
   width: number
 ) {
-  const x = team === "A" ? 1 : width - 2;
+  const x = team === "A" ? 1 : width - 2; // 角色生成位置
   return classList
     .slice(0, 4)
     .map((cls, i) =>

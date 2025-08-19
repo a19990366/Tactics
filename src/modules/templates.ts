@@ -319,9 +319,11 @@ export const Templates = {
   ADMIN: AdminTemplate,
 } as const;
 
+export const CLASS_LIST = Object.keys(Templates) as ClassKey[];
+export const RANDOM_CLASS_LIST = CLASS_LIST.filter((k) => k !== "ADMIN"); // 隨機角色移除 ADMIN
+
 export type ClassKey = keyof typeof Templates;
 
-export const CLASS_LIST = Object.keys(Templates) as ClassKey[];
 export const SHORT: Record<ClassKey, string> = {
   Swordsman: "Swd",
   Mage: "Mag",

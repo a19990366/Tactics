@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import {
   initGameWithRosters,
   currentUnit,
@@ -12,11 +12,17 @@ import {
   aiTakeTurn,
   skipToAlive,
 } from "./modules/engine";
-import { CLASS_LIST, ClassKey, Templates } from "./modules/templates";
+import {
+  CLASS_LIST,
+  RANDOM_CLASS_LIST,
+  ClassKey,
+  Templates,
+} from "./modules/templates";
 import { GameState } from "./modules/types";
 import { StatPillDiff } from "./components/StatPillDiff";
 import { Tile } from "./components/Tile";
 import { SelectSlot } from "./components/SelectSlot";
+import { log, logs } from "./modules/logs";
 
 export default function TacticsExtended() {
   const [mode, setMode] = useState<"PvE" | "PvP">("PvE");
@@ -35,6 +41,20 @@ export default function TacticsExtended() {
   const [gs, setGs] = useState<GameState>(() =>
     initGameWithRosters("PvE", lastRoster.p1, lastRoster.p2)
   );
+
+  // ---------- NEW: refs for unit list scrolling ----------
+  const unitRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useEffect(() => {
+    const id = gs.selectedUnitId;
+    if (!id) return;
+    const el = unitRefs.current[id];
+    if (el) {
+      // smooth scroll so user sees the selected unit in the list
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [gs.selectedUnitId]);
+  // ------------------------------------------------------
 
   const me = currentUnit(gs);
   const selected = gs.selectedUnitId
@@ -89,9 +109,13 @@ export default function TacticsExtended() {
     const chosen = arr.filter(Boolean) as ClassKey[];
     if (allowDup) {
       while (chosen.length < 4)
-        chosen.push(CLASS_LIST[Math.floor(Math.random() * CLASS_LIST.length)]);
+        chosen.push(
+          RANDOM_CLASS_LIST[
+            Math.floor(Math.random() * RANDOM_CLASS_LIST.length)
+          ]
+        );
     } else {
-      const remain = CLASS_LIST.filter((k) => !chosen.includes(k));
+      const remain = RANDOM_CLASS_LIST.filter((k) => !chosen.includes(k));
       while (chosen.length < 4 && remain.length) {
         const idx = Math.floor(Math.random() * remain.length);
         chosen.push(remain.splice(idx, 1)[0]);
@@ -101,7 +125,7 @@ export default function TacticsExtended() {
   };
   const randomRoster = (count: number, allowDupFlag: boolean) => {
     const out: ClassKey[] = [];
-    const pool = [...CLASS_LIST];
+    const pool = [...RANDOM_CLASS_LIST];
     for (let i = 0; i < count; i++) {
       if (allowDupFlag) out.push(pool[Math.floor(Math.random() * pool.length)]);
       else {
@@ -179,11 +203,49 @@ export default function TacticsExtended() {
     }
   };
 
+  // ---------- NEW: dynamic skill tooltip generator ----------
+  function skillTooltip(sk: any): string {
+    if (!sk) return "—";
+    const parts: string[] = [];
+    // basic header
+    parts.push(`${sk.name}`);
+    // type & multiplier & mp
+    if (sk.type) parts.push(`類型: ${sk.type}`);
+    if (sk.multiplier != null) parts.push(`倍率: ${sk.multiplier}`);
+    parts.push(`耗費: ${sk.mpCost ?? 0} MP`);
+    // range / area
+    if (sk.area) {
+      if (sk.area.kind === "Line")
+        parts.push(`範圍: 直線 ${sk.rangeFront ?? "?"}`);
+      else if (sk.area.kind === "Rect")
+        parts.push(
+          `範圍: 矩形 ${(sk.area as any).rectW}×${(sk.area as any).rectD}`
+        );
+      else parts.push(`範圍: 自身 (MOV)`);
+    }
+    // targetGroup / targetTeam
+    if (sk.targetGroup) parts.push(`目標: ${sk.targetGroup}`);
+    if (sk.targetTeam) parts.push(`目標隊伍: ${sk.targetTeam}`);
+    // effects
+    if (sk.effects) {
+      if (sk.effects.healHP) parts.push(`回復 HP: ${sk.effects.healHP}`);
+      if (sk.effects.restoreMP) parts.push(`回復 MP: ${sk.effects.restoreMP}`);
+      if (sk.effects.applyBuff)
+        parts.push(
+          `附加: ${sk.effects.applyBuff.buff.name} (${sk.effects.applyBuff.to})`
+        );
+    }
+    // if there's an explicit desc, use it at the end for more context
+    if (sk.desc) parts.push(`說明: ${sk.desc}`);
+    return parts.join("；");
+  }
+  // -----------------------------------------------------------
+
   return (
     <div className="min-h-screen">
       {inSetup ? (
         <div className="p-4 flex flex-col gap-4 bg-slate-50 min-h-screen text-slate-800">
-          <h1 className="text-xl font-bold">React 戰棋小遊戲（擴充版）</h1>
+          <h1 className="text-xl font-bold">React 戰棋英雄 ⚔（擴充版）</h1>
           <div className="flex items-center gap-3">
             <label className="text-sm">模式：</label>
             <select
@@ -322,6 +384,7 @@ export default function TacticsExtended() {
                     return (
                       <div
                         key={u.id}
+                        ref={(el) => (unitRefs.current[u.id] = el)} // <<-- NEW: attach ref
                         onClick={() => {
                           gs.selectedUnitId = u.id;
                           gs.selectedSkillId = undefined;
@@ -474,6 +537,7 @@ export default function TacticsExtended() {
                                 gs.selectedSkillId = undefined;
                                 setGs({ ...gs });
                               }}
+                              title={skillTooltip(basic)}
                             >
                               選中
                             </button>
@@ -490,6 +554,7 @@ export default function TacticsExtended() {
                                 gs.selectedSkillId = undefined;
                                 setGs({ ...gs });
                               }}
+                              title={`移動 ${Math.floor(getStat(u, "MOV"))} 格`}
                             >
                               移動 ({Math.floor(getStat(u, "MOV"))})
                             </button>
@@ -506,6 +571,7 @@ export default function TacticsExtended() {
                                 gs.selectedSkillId = "basic";
                                 setGs({ ...gs });
                               }}
+                              title={skillTooltip(basic)}
                             >
                               {basic.name}（0 MP / 直線{basic.rangeFront}）
                             </button>
@@ -517,7 +583,7 @@ export default function TacticsExtended() {
                                   ? `矩形${(sk.area as any).rectW}×${
                                       (sk.area as any).rectD
                                     }`
-                                  : `自身範圍(MOV)`;
+                                  : `自身範圍${sk.rangeFront}`;
                               return (
                                 <button
                                   key={sk.id}
@@ -533,6 +599,7 @@ export default function TacticsExtended() {
                                     gs.selectedSkillId = sk.id;
                                     setGs({ ...gs });
                                   }}
+                                  title={skillTooltip(sk)} // <<-- NEW: tooltip
                                 >
                                   {sk.name}（{sk.mpCost} MP / {areaLabel}）
                                 </button>
@@ -557,9 +624,12 @@ export default function TacticsExtended() {
               <div className="p-3 rounded-xl border shadow-sm">
                 <div className="font-semibold">戰鬥記錄</div>
                 <div className="mt-2 h-48 overflow-auto text-sm space-y-1">
-                  {/* logs omitted in this split; you can wire a logs array if you want */}
                   <div className="text-slate-700">
-                    戰鬥記錄顯示區（可自行接 logs 陣列）
+                    {logs.map((l, i) => (
+                      <div key={i} className="text-slate-700">
+                        • {l}
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -581,6 +651,12 @@ export default function TacticsExtended() {
                   ))}
                 </div>
               </div>
+
+              {!aAlive || !bAlive ? (
+                <div className="p-3 rounded-xl border shadow-sm text-center text-lg font-bold">
+                  {aAlive ? "A 隊勝利！" : bAlive ? "B 隊勝利！" : "平局？"}
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
