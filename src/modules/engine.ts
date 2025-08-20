@@ -20,9 +20,19 @@ export const KP = 1.0;
 export const KM = 1.0;
 
 // simple map helpers
-export function inBounds(gs: GameState, x: number, y: number) {
-  return x >= 0 && y >= 0 && x < gs.width && y < gs.height;
+function inBounds(gs: GameState, x: number, y: number) {
+  return x >= 0 && x < gs.width && y >= 0 && y < gs.height;
 }
+
+function normalizeCardinal(u: Unit, focus?: { x: number; y: number } | null) {
+  if (!focus) return null;
+  const dx = focus.x - u.x;
+  const dy = focus.y - u.y;
+  if (dx === 0 && dy === 0) return null;
+  if (Math.abs(dx) >= Math.abs(dy)) return { dx: dx > 0 ? 1 : -1, dy: 0 };
+  return { dx: 0, dy: dy > 0 ? 1 : -1 };
+}
+
 export function unitAt(gs: GameState, x: number, y: number) {
   return gs.units.find((u) => u.alive && u.x === x && u.y === y);
 }
@@ -91,42 +101,63 @@ export function getRectTiles(
   rectD: number
 ) {
   const tiles: { x: number; y: number }[] = [];
-  const dir = facingDir(u.team);
-  const half = Math.floor((rectW - 1) / 2);
+  // rectW = width (左右寬度), rectD = depth (向前延伸)
+  const dirs = [1, -1, 0, 0]; // we'll iterate four canonical orientations manually
+  // right
   for (let d = 1; d <= rectD; d++) {
-    const x = u.x + dir * d;
-    for (let w = -half; w <= half + (rectW % 2 === 0 ? 1 : 0); w++) {
+    for (let w = -Math.floor((rectW - 1) / 2); w <= Math.floor((rectW - 1) / 2) + (rectW % 2 === 0 ? 1 : 0); w++) {
+      const x = u.x + d;
       const y = u.y + w;
+      if (inBounds(gs, x, y)) tiles.push({ x, y });
+    }
+  }
+  // left
+  for (let d = 1; d <= rectD; d++) {
+    for (let w = -Math.floor((rectW - 1) / 2); w <= Math.floor((rectW - 1) / 2) + (rectW % 2 === 0 ? 1 : 0); w++) {
+      const x = u.x - d;
+      const y = u.y + w;
+      if (inBounds(gs, x, y)) tiles.push({ x, y });
+    }
+  }
+  // down
+  for (let d = 1; d <= rectD; d++) {
+    for (let w = -Math.floor((rectW - 1) / 2); w <= Math.floor((rectW - 1) / 2) + (rectW % 2 === 0 ? 1 : 0); w++) {
+      const x = u.x + w;
+      const y = u.y + d;
+      if (inBounds(gs, x, y)) tiles.push({ x, y });
+    }
+  }
+  // up
+  for (let d = 1; d <= rectD; d++) {
+    for (let w = -Math.floor((rectW - 1) / 2); w <= Math.floor((rectW - 1) / 2) + (rectW % 2 === 0 ? 1 : 0); w++) {
+      const x = u.x + w;
+      const y = u.y - d;
       if (inBounds(gs, x, y)) tiles.push({ x, y });
     }
   }
   return tiles;
 }
 
-export function getSelfMovTiles(gs: GameState, u: Unit) {
-  const R = Math.max(1, Math.floor(getStat(u, "MOV")));
-  const tiles: { x: number; y: number }[] = [];
-  for (
-    let x = Math.max(0, u.x - R);
-    x <= Math.min(gs.width - 1, u.x + R);
-    x++
-  ) {
-    for (
-      let y = Math.max(0, u.y - R);
-      y <= Math.min(gs.height - 1, u.y + R);
-      y++
-    ) {
-      if (manhattan(u, { x, y }) <= R) tiles.push({ x, y });
+export function getSelfAreaTiles(gs: GameState, u: Unit, rangeFront: number) {
+  const radius = rangeFront != null ? rangeFront : 0;
+  const res: { x: number; y: number }[] = [];
+  for (let dx = -radius; dx <= radius; dx++) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      if (Math.abs(dx) + Math.abs(dy) <= radius) {
+        const nx = u.x + dx;
+        const ny = u.y + dy;
+        if (inBounds(gs, nx, ny)) res.push({ x: nx, y: ny });
+      }
     }
   }
-  return tiles;
+  return res;
 }
 
 export function getAreaTiles(gs: GameState, u: Unit, sk: Skill) {
   if (sk.area.kind === "Line") return getLineTiles(gs, u, sk.rangeFront);
   if (sk.area.kind === "Rect")
     return getRectTiles(gs, u, sk.area.rectW, sk.area.rectD);
-  return getSelfMovTiles(gs, u);
+  return getSelfAreaTiles(gs, u, sk.rangeFront);
 }
 
 // stats & buffs
@@ -392,6 +423,8 @@ export function endTurn(gs: GameState) {
   gs.selectedUnitId = undefined;
   gs.turnIndex++;
   if (gs.turnIndex >= gs.turnOrder.length) endOfRound(gs);
+  const cur = currentUnit(gs);
+  gs.selectedUnitId = cur ? cur.id : undefined;
 }
 
 export function isTeamAlive(gs: GameState, team: Team) {
@@ -410,38 +443,60 @@ export function collectTargets(
 
   function include(u: Unit) {
     if (!u.alive) return false;
-    if (
-      u.id === caster.id &&
-      skill.targetGroup === "single" &&
-      skill.effects?.applyBuff?.to !== "self"
-    ) {
-      // do nothing special
-    }
     const isEnemy = u.team !== caster.team;
     const isAlly = u.team === caster.team;
     return (wantEnemy && isEnemy) || (wantAlly && isAlly);
   }
 
-  if (skill.area.kind === "SelfMov") {
-    const tiles = getSelfMovTiles(gs, caster);
+  // Helper: unit at clicked tile
+  const clickedUnit = unitAt(gs, clicked.x, clicked.y);
+
+  // --- SelfArea (自身範圍) ---
+  if (skill.area.kind === "SelfArea") {
+    const tiles = getSelfAreaTiles(gs, caster, skill.rangeFront);
     const set = new Set(tiles.map((t) => `${t.x},${t.y}`));
-    const list = gs.units.filter((u) => set.has(`${u.x},${u.y}`) && include(u));
-    if (
-      skill.targetGroup === "single" &&
-      skill.effects?.applyBuff?.to === "self"
-    )
+
+    // 若技能本身設為只對 self，直接返回 caster
+    if (skill.targetGroup === "single" && skill.effects?.applyBuff?.to === "self")
       return [caster];
+
+    // 若 targetGroup 是 single，且玩家是點擊範圍內某格 -> 以該格的 unit 為目標（若合法）
+    if (skill.targetGroup === "single") {
+      if (clickedUnit && set.has(`${clickedUnit.x},${clickedUnit.y}`) && include(clickedUnit)) {
+        return [clickedUnit];
+      } else {
+        return []; // single target but clicked empty 或不合法
+      }
+    }
+
+    // 否則（group/area）回傳範圍內所有合法 unit
+    const list = gs.units.filter((u) => set.has(`${u.x},${u.y}`) && include(u));
     return list;
   }
 
+  // --- Rect (矩形) ---
   if (skill.area.kind === "Rect") {
     const tiles = getRectTiles(gs, caster, skill.area.rectW, skill.area.rectD);
+    // 若 click 不在矩形範圍內，直接回空
     if (!tiles.find((t) => t.x === clicked.x && t.y === clicked.y)) return [];
+
     const set = new Set(tiles.map((t) => `${t.x},${t.y}`));
+
+    // 如果是 single-target（玩家想指定範圍內某一格）
+    if (skill.targetGroup === "single") {
+      if (clickedUnit && set.has(`${clickedUnit.x},${clickedUnit.y}`) && include(clickedUnit)) {
+        return [clickedUnit];
+      } else {
+        return [];
+      }
+    }
+
+    // 否則回傳矩形內所有符合 include 的單位
     return gs.units.filter((u) => set.has(`${u.x},${u.y}`) && include(u));
   }
 
-  // Line
+  // --- Line (直線) ---
+  // 直線已經是以 clicked 位置決定方向 (你的原本實作)
   const aligned = clicked.x === caster.x || clicked.y === caster.y;
   if (!aligned) return [];
   const dx = Math.sign(clicked.x - caster.x);
@@ -454,12 +509,15 @@ export function collectTargets(
     if (!inBounds(gs, x, y)) break;
     tiles.push({ x, y });
   }
-  const set = new Set(tiles.map((t) => `${t.x},${t.y}`));
-  const inLine = gs.units.filter((u) => set.has(`${u.x},${u.y}`) && include(u));
+  const setLine = new Set(tiles.map((t) => `${t.x},${t.y}`));
+  const inLine = gs.units.filter((u) => setLine.has(`${u.x},${u.y}`) && include(u));
+
   if (skill.targetGroup === "single") {
+    // single-target line：以 clicked 的那格為單體（若為單位且合法）
     const u = unitAt(gs, clicked.x, clicked.y);
     return u && include(u) ? [u] : [];
   }
+
   return inLine;
 }
 
@@ -475,18 +533,25 @@ export function doCast(
       if (t.team !== caster.team) {
         const r = resolveAttack(gs, caster, t, sk);
         applyDamage(gs, t, r.damage);
+        log(`${caster.id} 使用 ${sk.name} 對 ${t.id} 造成 ${r.text}`);
       }
     }
     if (sk.effects?.healHP && t.team === caster.team) {
       t.hp = clamp(t.hp + sk.effects.healHP, 0, t.maxHP);
+      log(`${caster.id} 使用 ${sk.name} 治療 ${t.id} ${sk.effects.healHP} HP`);
     }
     if (sk.effects?.restoreMP && t.team === caster.team) {
       t.mp = clamp(t.mp + sk.effects.restoreMP, 0, t.maxMP);
+      log(
+        `${caster.id} 使用 ${sk.name} 回復 ${t.id} ${sk.effects.restoreMP} MP`
+      );
     }
     if (sk.effects?.applyBuff) {
-      if (sk.effects.applyBuff.to === "self")
-        addBuff(caster, sk.effects.applyBuff.buff);
-      else addBuff(t, sk.effects.applyBuff.buff);
+      const targetUnit = sk.effects.applyBuff.to === "self" ? caster : t;
+      addBuff(targetUnit, sk.effects.applyBuff.buff);
+      log(
+        `${caster.id} 使用 ${sk.name} 為 ${targetUnit.id} 附加 ${sk.effects.applyBuff.buff.name}`
+      );
     }
   }
   caster.mp = clamp(caster.mp - sk.mpCost, 0, caster.maxMP);
@@ -502,6 +567,8 @@ export function aiTakeTurn(gs: GameState) {
     endTurn(gs);
     return;
   }
+  gs.selectedUnitId = u.id;
+  gs.selectedSkillId = '';
   const basic = u.skills.find((s) => s.isBasic)!;
   const actives = u.skills.filter((s) => !s.isBasic && u.mp >= s.mpCost);
   const skillsToTry: Skill[] = [basic, ...actives];
@@ -629,6 +696,7 @@ export function initGameWithRosters(
     mode,
   };
   recomputeTurnOrder(s);
+  s.selectedUnitId = s.turnOrder.length ? s.turnOrder[0] : undefined;
   return s;
 }
 

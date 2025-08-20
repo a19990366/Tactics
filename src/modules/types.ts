@@ -7,7 +7,7 @@ export type TargetTeam = "enemy" | "ally" | "both";
 export type AreaSpec =
   | { kind: "Line" } // 四方向直線（1×range）
   | { kind: "Rect"; rectW: number; rectD: number } // 面向矩形
-  | { kind: "SelfMov" }; // 自身為中心，曼哈頓半徑 = MOV
+  | { kind: "SelfArea" }; // 自身為中心
 
 export type StatKey =
   | "ATK"
@@ -49,7 +49,7 @@ export type Skill = {
   effects?: {
     healHP?: number;
     restoreMP?: number;
-    applyBuff?: { to: "self" | "area"; buff: BuffSpec };
+    applyBuff?: { to: "self" | "area" | "unit"; buff: BuffSpec };
   };
 };
 

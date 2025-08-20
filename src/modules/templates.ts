@@ -195,7 +195,7 @@ export const AdminTemplate: UnitTemplate = {
   EVA: 110,
   CR: 0.15,
   SPD: 18,
-  MOV: 4,
+  MOV: 10,
   BLK: 0.2,
   passive: {
     name: "系統管理員",
@@ -247,7 +247,7 @@ export const AdminTemplate: UnitTemplate = {
       mpCost: 15,
       rangeFront: 3,
       area: { kind: "Rect", rectW: 3, rectD: 2 },
-      targetGroup: "group",
+      targetGroup: "single",
       targetTeam: "enemy",
     },
     {
@@ -256,8 +256,8 @@ export const AdminTemplate: UnitTemplate = {
       type: "Magical",
       multiplier: 0,
       mpCost: 10,
-      rangeFront: 0,
-      area: { kind: "SelfMov" },
+      rangeFront: 3,
+      area: { kind: "SelfArea" },
       targetGroup: "group",
       targetTeam: "ally",
       effects: { healHP: 120, restoreMP: 8 },
@@ -268,13 +268,13 @@ export const AdminTemplate: UnitTemplate = {
       type: "Physical",
       multiplier: 0,
       mpCost: 8,
-      rangeFront: 0,
-      area: { kind: "SelfMov" },
+      rangeFront: 5,
+      area: { kind: "SelfArea" },
       targetGroup: "single",
       targetTeam: "ally",
       effects: {
         applyBuff: {
-          to: "self",
+          to: "unit",
           buff: {
             name: "超頻",
             turns: 2,

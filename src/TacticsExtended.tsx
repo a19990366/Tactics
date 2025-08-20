@@ -22,7 +22,7 @@ import { GameState } from "./modules/types";
 import { StatPillDiff } from "./components/StatPillDiff";
 import { Tile } from "./components/Tile";
 import { SelectSlot } from "./components/SelectSlot";
-import { log, logs } from "./modules/logs";
+import { initLog, logs } from "./modules/logs";
 
 export default function TacticsExtended() {
   const [mode, setMode] = useState<"PvE" | "PvP">("PvE");
@@ -41,22 +41,10 @@ export default function TacticsExtended() {
   const [gs, setGs] = useState<GameState>(() =>
     initGameWithRosters("PvE", lastRoster.p1, lastRoster.p2)
   );
-
-  // ---------- NEW: refs for unit list scrolling ----------
-  const unitRefs = useRef<Record<string, HTMLDivElement | null>>({});
-
-  useEffect(() => {
-    const id = gs.selectedUnitId;
-    if (!id) return;
-    const el = unitRefs.current[id];
-    if (el) {
-      // smooth scroll so user sees the selected unit in the list
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  }, [gs.selectedUnitId]);
   // ------------------------------------------------------
 
   const me = currentUnit(gs);
+  const isPlayerControlled = gs.mode === "PvP" || (me && me.team === "A");
   const selected = gs.selectedUnitId
     ? gs.units.find((u) => u.id === gs.selectedUnitId)
     : undefined;
@@ -142,6 +130,7 @@ export default function TacticsExtended() {
     const p1 = fillRandomIfEmpty(p1Sel);
     const p2 =
       mode === "PvP" ? fillRandomIfEmpty(p2Sel) : randomRoster(4, allowDup);
+    initLog();
     const s = initGameWithRosters(mode, p1, p2);
     setLastRoster({ p1, p2 });
     setGs(s);
@@ -149,6 +138,7 @@ export default function TacticsExtended() {
   };
   const reset = (modeNext: "PvE" | "PvP") => {
     setGs(initGameWithRosters(modeNext, lastRoster.p1, lastRoster.p2));
+    initLog();
   };
 
   const onTileClick = (x: number, y: number) => {
@@ -180,7 +170,7 @@ export default function TacticsExtended() {
       const tiles = targetTiles;
       const okTile =
         tiles.some((t) => t.x === x && t.y === y) ||
-        selectedSkill.area.kind === "SelfMov";
+        selectedSkill.area.kind === "SelfArea";
       if (!okTile) return;
 
       if (selected.actedThisTurn) {
@@ -370,21 +360,19 @@ export default function TacticsExtended() {
               <div className="p-3 rounded-xl border shadow-sm">
                 <div className="font-semibold mb-2">單位列表（可點擊查看）</div>
                 <div className="space-y-2 max-h-[28rem] overflow-auto">
-                  {gs.units.map((u) => {
-                    const accB = u.base.ACC,
-                      accE = getStat(u, "ACC");
-                    const evaB = u.base.EVA,
-                      evaE = getStat(u, "EVA");
-                    const spdB = u.base.SPD,
-                      spdE = getStat(u, "SPD");
-                    const movB = u.base.MOV,
-                      movE = getStat(u, "MOV");
-                    const crB = u.base.CR,
-                      crE = getStat(u, "CR");
+                  {/* 只顯示被選中的單位（若無選取則顯示提示） */}
+                  {gs.selectedUnitId ? (() => {
+                    const u = gs.units.find((x) => x.id === gs.selectedUnitId);
+                    if (!u) return <div className="text-sm text-slate-500 p-2">目前選取的單位不在場上。</div>;
+                    const accB = u.base.ACC, accE = getStat(u, "ACC");
+                    const evaB = u.base.EVA, evaE = getStat(u, "EVA");
+                    const spdB = u.base.SPD, spdE = getStat(u, "SPD");
+                    const movB = u.base.MOV, movE = getStat(u, "MOV");
+                    const crB = u.base.CR, crE = getStat(u, "CR");
                     return (
                       <div
                         key={u.id}
-                        ref={(el) => (unitRefs.current[u.id] = el)} // <<-- NEW: attach ref
+                        // 保留點擊選取（如果你還想用點擊左側來取消或再次選中）
                         onClick={() => {
                           gs.selectedUnitId = u.id;
                           gs.selectedSkillId = undefined;
@@ -392,46 +380,31 @@ export default function TacticsExtended() {
                         }}
                         className={`p-2 rounded-lg border cursor-pointer hover:bg-slate-50 ${
                           u.alive ? "" : "opacity-50"
-                        }`}
+                        } bg-slate-200 border-blue-400`} // 明顯標示為被選中
                       >
                         <div className="flex items-center justify-between">
                           <div className="font-semibold">
                             {u.id}{" "}
-                            <span className="text-xs text-slate-500">
-                              [{u.cls}]
-                            </span>
+                            <span className="text-xs text-slate-500">[{u.cls}]</span>
                           </div>
                           <div className="flex gap-2">
                             <div className="text-xs px-2 py-1 rounded-full bg-slate-100 border border-slate-300">
-                              HP:{" "}
-                              <b>
-                                {u.hp}/{u.maxHP}
-                              </b>
+                              HP: <b>{u.hp}/{u.maxHP}</b>
                             </div>
                             <div className="text-xs px-2 py-1 rounded-full bg-slate-100 border border-slate-300">
-                              MP:{" "}
-                              <b>
-                                {u.mp}/{u.maxMP}
-                              </b>
+                              MP: <b>{u.mp}/{u.maxMP}</b>
                             </div>
                           </div>
                         </div>
                         <div className="mt-1 flex gap-2 flex-wrap text-[11px]">
                           <StatPillDiff label="ACC" base={accB} eff={accE} />
                           <StatPillDiff label="EVA" base={evaB} eff={evaE} />
-                          <StatPillDiff
-                            label="CR"
-                            base={crB}
-                            eff={crE}
-                            suffix="%"
-                          />
+                          <StatPillDiff label="CR" base={crB * 100} eff={crE * 100} suffix="%" />
                           <StatPillDiff label="SPD" base={spdB} eff={spdE} />
                           <StatPillDiff label="MOV" base={movB} eff={movE} />
                           <div
                             className="text-[11px] px-2 py-1 rounded-full bg-slate-100 border border-slate-300"
-                            title={`物${Templates[u.cls].finalDR.physical} 魔${
-                              Templates[u.cls].finalDR.magical
-                            }`}
+                            title={`物${Templates[u.cls].finalDR.physical} 魔${Templates[u.cls].finalDR.magical}`}
                           >
                             BLK: <b>{Math.round(getStat(u, "BLK") * 100)}%</b>
                           </div>
@@ -444,7 +417,9 @@ export default function TacticsExtended() {
                         </div>
                       </div>
                     );
-                  })}
+                  })() : (
+                    <div className="text-sm text-slate-500 p-2">尚未選取單位。</div>
+                  )}
                 </div>
               </div>
 
@@ -508,119 +483,114 @@ export default function TacticsExtended() {
             </div>
 
             <div className="w-96 space-y-3">
-              {me &&
-                (gs.mode === "PvP" || me.team === "A") &&
-                isTeamAlive(gs, "A") &&
-                isTeamAlive(gs, "B") && (
-                  <div className="p-3 rounded-xl border shadow-sm">
-                    <div className="font-semibold">
-                      目前行動：{me.id}（{me.team}）
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      位置：({me.x + 1},{me.y + 1})；可移動：
-                      {Math.floor(getStat(me, "MOV"))} 格
-                    </div>
-                    <div className="mt-2">
-                      {(() => {
-                        const u = me!;
-                        const basic = u.skills.find((s) => s.isBasic)!;
-                        const actives = u.skills.filter((s) => !s.isBasic);
-                        const canAct = !u.actedThisTurn;
-                        const canMove = !u.movedThisTurn;
-                        return (
-                          <div className="flex gap-2 flex-wrap">
-                            <button
-                              className="px-3 py-1 rounded bg-slate-800 text-white"
-                              onClick={() => {
-                                gs.phase = "select-action";
-                                gs.selectedUnitId = u.id;
-                                gs.selectedSkillId = undefined;
-                                setGs({ ...gs });
-                              }}
-                              title={skillTooltip(basic)}
-                            >
-                              選中
-                            </button>
-                            <button
-                              disabled={!canMove}
-                              className={`px-3 py-1 rounded ${
-                                canMove
-                                  ? "bg-emerald-600 text-white"
-                                  : "bg-slate-300 text-slate-500"
-                              }`}
-                              onClick={() => {
-                                gs.phase = "select-move";
-                                gs.selectedUnitId = u.id;
-                                gs.selectedSkillId = undefined;
-                                setGs({ ...gs });
-                              }}
-                              title={`移動 ${Math.floor(getStat(u, "MOV"))} 格`}
-                            >
-                              移動 ({Math.floor(getStat(u, "MOV"))})
-                            </button>
-                            <button
-                              disabled={!canAct}
-                              className={`px-3 py-1 rounded ${
-                                canAct
-                                  ? "bg-indigo-600 text-white"
-                                  : "bg-slate-300 text-slate-500"
-                              }`}
-                              onClick={() => {
-                                gs.phase = "select-target";
-                                gs.selectedUnitId = u.id;
-                                gs.selectedSkillId = "basic";
-                                setGs({ ...gs });
-                              }}
-                              title={skillTooltip(basic)}
-                            >
-                              {basic.name}（0 MP / 直線{basic.rangeFront}）
-                            </button>
-                            {actives.map((sk) => {
-                              const areaLabel =
-                                sk.area.kind === "Line"
-                                  ? `直線${sk.rangeFront}`
-                                  : sk.area.kind === "Rect"
-                                  ? `矩形${(sk.area as any).rectW}×${
-                                      (sk.area as any).rectD
-                                    }`
-                                  : `自身範圍${sk.rangeFront}`;
-                              return (
-                                <button
-                                  key={sk.id}
-                                  disabled={!canAct || u.mp < sk.mpCost}
-                                  className={`px-3 py-1 rounded ${
-                                    canAct && u.mp >= sk.mpCost
-                                      ? "bg-purple-600 text-white"
-                                      : "bg-slate-300 text-slate-500"
-                                  }`}
-                                  onClick={() => {
-                                    gs.phase = "select-target";
-                                    gs.selectedUnitId = u.id;
-                                    gs.selectedSkillId = sk.id;
-                                    setGs({ ...gs });
-                                  }}
-                                  title={skillTooltip(sk)} // <<-- NEW: tooltip
-                                >
-                                  {sk.name}（{sk.mpCost} MP / {areaLabel}）
-                                </button>
-                              );
-                            })}
-                            <button
-                              className="px-3 py-1 rounded bg-slate-200"
-                              onClick={() => {
-                                endTurn(gs);
-                                setGs({ ...gs });
-                              }}
-                            >
-                              結束回合
-                            </button>
-                          </div>
-                        );
-                      })()}
-                    </div>
+              {me && isTeamAlive(gs, "A") && isTeamAlive(gs, "B") && (
+                <div className="p-3 rounded-xl border shadow-sm">
+                  <div className="font-semibold">目前行動：{me.id}（{me.team}）</div>
+                  <div className="text-xs text-slate-500">
+                    位置：({me.x + 1},{me.y + 1})；可移動：{Math.floor(getStat(me, "MOV"))} 格
                   </div>
-                )}
+                  <div className="mt-2">
+                    {(() => {
+                      const u = me!;
+                      const basic = u.skills.find((s) => s.isBasic)!;
+                      const actives = u.skills.filter((s) => !s.isBasic);
+                      const canAct = !u.actedThisTurn;
+                      const canMove = !u.movedThisTurn;
 
+                      return (
+                        <div className="flex gap-2 flex-wrap">
+                          {isPlayerControlled ? (
+                            <>
+                              <button
+                                className="px-3 py-1 rounded bg-slate-800 text-white"
+                                onClick={() => {
+                                  gs.phase = "select-action";
+                                  gs.selectedUnitId = u.id;
+                                  gs.selectedSkillId = undefined;
+                                  setGs({ ...gs });
+                                }}
+                                title={u.id}
+                              >
+                                選中
+                              </button>
+                              <button
+                                disabled={!canMove}
+                                className={`px-3 py-1 rounded ${
+                                  canMove ? "bg-emerald-600 text-white" : "bg-slate-300 text-slate-500"
+                                }`}
+                                onClick={() => {
+                                  gs.phase = "select-move";
+                                  gs.selectedUnitId = u.id;
+                                  gs.selectedSkillId = undefined;
+                                  setGs({ ...gs });
+                                }}
+                              >
+                                移動 ({Math.floor(getStat(u, "MOV"))})
+                              </button>
+
+                              <button
+                                disabled={!canAct}
+                                className={`px-3 py-1 rounded ${
+                                  canAct ? "bg-indigo-600 text-white" : "bg-slate-300 text-slate-500"
+                                }`}
+                                onClick={() => {
+                                  gs.phase = "select-target";
+                                  gs.selectedUnitId = u.id;
+                                  gs.selectedSkillId = "basic";
+                                  setGs({ ...gs });
+                                }}
+                              >
+                                {basic.name}（0 MP / 直線{basic.rangeFront}）
+                              </button>
+
+                              {actives.map((sk) => {
+                                const areaLabel =
+                                  sk.area.kind === "Line"
+                                    ? `直線${sk.rangeFront}`
+                                    : sk.area.kind === "Rect"
+                                    ? `矩形${(sk.area as any).rectW}×${(sk.area as any).rectD}`
+                                    : `自身範圍${sk.rangeFront}`;
+                                return (
+                                  <button
+                                    key={sk.id}
+                                    disabled={!canAct || u.mp < sk.mpCost}
+                                    className={`px-3 py-1 rounded ${
+                                      canAct && u.mp >= sk.mpCost ? "bg-purple-600 text-white" : "bg-slate-300 text-slate-500"
+                                    }`}
+                                    onClick={() => {
+                                      gs.phase = "select-target";
+                                      gs.selectedUnitId = u.id;
+                                      gs.selectedSkillId = sk.id;
+                                      setGs({ ...gs });
+                                    }}
+                                    title={`對 ${sk.targetTeam} 造成 ${sk.multiplier} 倍 ${sk.targetGroup} ${sk.type} 傷害` }
+                                  >
+                                    {sk.name}（{sk.mpCost} MP / {areaLabel}）
+                                  </button>
+                                );
+                              })}
+                              <button
+                                className="px-3 py-1 rounded bg-slate-200"
+                                onClick={() => {
+                                  endTurn(gs);
+                                  setGs({ ...gs });
+                                }}
+                              >
+                                結束回合
+                              </button>
+                            </>
+                          ) : (
+                            // 非玩家控制（AI）：顯示說明文字，但不顯示操作按鈕
+                            <div className="px-3 py-1 rounded bg-slate-100 text-slate-600">
+                              AI 控制中...
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
               <div className="p-3 rounded-xl border shadow-sm">
                 <div className="font-semibold">戰鬥記錄</div>
                 <div className="mt-2 h-48 overflow-auto text-sm space-y-1">
