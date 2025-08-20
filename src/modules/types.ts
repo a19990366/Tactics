@@ -55,10 +55,6 @@ export type Skill = {
 
 export type Passive = {
   name: string;
-  defMul?: number;
-  mpRegenMul?: number;
-  addCR?: number;
-  finalEvadeMinusHit?: number;
   baseAdd?: Partial<Record<StatKey, number>>;
   baseMul?: Partial<Record<StatKey, number>>;
   postDR?: Partial<{ physical: number; magical: number }>;

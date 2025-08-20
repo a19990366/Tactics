@@ -41,6 +41,8 @@ export default function TacticsExtended() {
   const [gs, setGs] = useState<GameState>(() =>
     initGameWithRosters("PvE", lastRoster.p1, lastRoster.p2)
   );
+  // hover / preview focus tile for target direction
+  const [hoverTile, setHoverTile] = useState<{ x: number; y: number } | null>(null);
   // ------------------------------------------------------
 
   const me = currentUnit(gs);
@@ -60,8 +62,9 @@ export default function TacticsExtended() {
 
   const targetTiles = useMemo(() => {
     if (!selected || gs.phase !== "select-target" || !selectedSkill) return [];
-    return getAreaTiles(gs, selected, selectedSkill);
-  }, [gs, selected, selectedSkill]);
+    // 如果有 hoverTile 就用它決定方向，沒有則回空（你也可以改為 union 預覽）
+    return getAreaTiles(gs, selected, selectedSkill, hoverTile ?? null);
+  }, [gs, selected, selectedSkill, hoverTile]);
 
   const testResults = useMemo(() => runSelfTests(), []);
 
@@ -167,24 +170,38 @@ export default function TacticsExtended() {
     }
 
     if (gs.phase === "select-target" && selected && selectedSkill) {
-      const tiles = targetTiles;
+      // 以 click 決定方向/範圍
+      const tiles = getAreaTiles(gs, selected, selectedSkill, { x, y });
       const okTile =
         tiles.some((t) => t.x === x && t.y === y) ||
-        selectedSkill.area.kind === "SelfArea";
+        selectedSkill.area.kind === "SelfArea"; // self area 不需方向
       if (!okTile) return;
-
-      if (selected.actedThisTurn) {
-        return;
+    
+      if (selected.actedThisTurn) return;
+      if (selected.mp < selectedSkill.mpCost) return;
+    
+      // 找出點到的單位（若有）
+      const clickedUnit = gs.units.find((uu) => uu.alive && uu.x === x && uu.y === y);
+    
+      // 如果是 single-target 且 clickedUnit 存在 -> 將左邊常駐選中切換到該單位（UI 顯示）
+      if (selectedSkill.targetGroup === "single") {
+        if (clickedUnit) {
+          gs.selectedUnitId = clickedUnit.id;
+        } else {
+          // single-target but clicked empty => 不施放
+          return;
+        }
+      } else {
+        // group-target: 不需要點在單位上，點空地也會對整塊施放（按你的需求）
+        // 我們不改變 selectedUnitId（保留原選取），或你可以把選取切換成 caster
       }
-      if (selected.mp < selectedSkill.mpCost) {
-        return;
-      }
-
+    
+      // 收集 targets（collectTargets 會用 clicked 作為 direction）
       const targets = collectTargets(gs, selected, selectedSkill, { x, y });
       if (!targets.length && selectedSkill.targetTeam !== "both") {
         return;
       }
-
+    
       doCast(gs, selected, selectedSkill, targets);
       gs.phase = "select-action";
       selected.actedThisTurn = true;
@@ -194,40 +211,114 @@ export default function TacticsExtended() {
   };
 
   // ---------- NEW: dynamic skill tooltip generator ----------
-  function skillTooltip(sk: any): string {
-    if (!sk) return "—";
+  function passiveTooltip(p: any): string {
     const parts: string[] = [];
-    // basic header
-    parts.push(`${sk.name}`);
-    // type & multiplier & mp
-    if (sk.type) parts.push(`類型: ${sk.type}`);
-    if (sk.multiplier != null) parts.push(`倍率: ${sk.multiplier}`);
-    parts.push(`耗費: ${sk.mpCost ?? 0} MP`);
-    // range / area
-    if (sk.area) {
-      if (sk.area.kind === "Line")
-        parts.push(`範圍: 直線 ${sk.rangeFront ?? "?"}`);
-      else if (sk.area.kind === "Rect")
+    if (p.baseAdd)
+      for (const [k, v] of Object.entries(p.baseAdd))
         parts.push(
-          `範圍: 矩形 ${(sk.area as any).rectW}×${(sk.area as any).rectD}`
+          `${k}+${
+            k === "CR" || k === "BLK" ? Math.round((v as number) * 100) + "%" : v
+          }`
         );
-      else parts.push(`範圍: 自身 (MOV)`);
+    if (p.baseMul)
+      for (const [k, v] of Object.entries(p.baseMul)) parts.push(`${k}×${v}`);
+    if (p.postDR) {
+      if (p.postDR.physical != null) parts.push(`最終物減×${p.postDR.physical}`);
+      if (p.postDR.magical != null) parts.push(`最終魔減×${p.postDR.magical}`);
     }
-    // targetGroup / targetTeam
-    if (sk.targetGroup) parts.push(`目標: ${sk.targetGroup}`);
-    if (sk.targetTeam) parts.push(`目標隊伍: ${sk.targetTeam}`);
-    // effects
+    return parts.length ? parts.join("；") : "—";
+  }
+
+  function skillTooltip(sk: any): string {
+    if (!sk) return "";
+  
+    // 輔助：敵我/範圍/單體 語句
+    const targetMap: Record<string, string> = {
+      enemy: "敵方",
+      ally: "我方",
+      both: "雙方",
+    };
+    const groupMap: Record<string, string> = {
+      single: "單體",
+      group: "群體",
+    };
+  
+    const tgtTeam = (sk.targetTeam && targetMap[sk.targetTeam]) || "目標";
+    const tgtGroup = (sk.targetGroup && groupMap[sk.targetGroup]) || "範圍";
+  
+    const parts: string[] = [];
+  
+    // 1) 傷害描述（若有 multiplier 與 type）
+    if (typeof sk.multiplier === "number" && sk.multiplier !== 0 && sk.type) {
+      // type 可能為 "Physical" / "physical" / "MAGICAL" 等，做簡單判斷
+      const t = String(sk.type).toLowerCase();
+      const typeText = t.includes("phys") || t.includes("physical") ? "物理" : t.includes("mag") || t.includes("magic") ? "魔法" : "傷害";
+      parts.push(`對 ${tgtTeam} ${tgtGroup} 造成 ${1+sk.multiplier} 倍 ${typeText} 傷害`);
+    }
+  
+    // 2) 回復描述
     if (sk.effects) {
-      if (sk.effects.healHP) parts.push(`回復 HP: ${sk.effects.healHP}`);
-      if (sk.effects.restoreMP) parts.push(`回復 MP: ${sk.effects.restoreMP}`);
-      if (sk.effects.applyBuff)
-        parts.push(
-          `附加: ${sk.effects.applyBuff.buff.name} (${sk.effects.applyBuff.to})`
-        );
+      if (sk.effects.healHP != null) {
+        parts.push(`對 ${tgtTeam} ${tgtGroup} 回復 ${sk.effects.healHP} 點 HP`);
+      }
+      if (sk.effects.restoreMP != null) {
+        parts.push(`對 ${tgtTeam} ${tgtGroup} 回復 ${sk.effects.restoreMP} 點 MP`);
+      }
     }
-    // if there's an explicit desc, use it at the end for more context
-    if (sk.desc) parts.push(`說明: ${sk.desc}`);
-    return parts.join("；");
+  
+    // 3) BUFF 描述（若有 applyBuff）
+    if (sk.effects && sk.effects.applyBuff && sk.effects.applyBuff.buff) {
+      const ab = sk.effects.applyBuff;
+      const toMap: Record<string, string> = {
+        self: "自身",
+        area: "範圍內",
+        unit: "單位",
+      };
+      const toText = toMap[ab.to] || String(ab.to);
+  
+      const buff = ab.buff as any;
+      const buffParts: string[] = [];
+  
+      // add 欄位 (絕對值)
+      if (buff.add) {
+        for (const [k, v] of Object.entries(buff.add)) {
+          // 數值格式化（若是百分比性質的屬性，通常會以小數表示，這裡只做通用顯示）
+          const sign = (v as number) > 0 ? "+" : "";
+          buffParts.push(`${k} ${sign}${v}`);
+        }
+      }
+  
+      // mul 欄位（倍率）
+      if (buff.mul) {
+        for (const [k, v] of Object.entries(buff.mul)) {
+          const mul = Number(v);
+          if (!Number.isFinite(mul)) continue;
+          // 顯示形式：×1.2 (+20%)
+          const pct = Math.round((mul - 1) * 10000) / 100; // 2位小數百分比
+          const sign = pct > 0 ? "+" : "";
+          buffParts.push(`${k} ×${Math.round(mul * 100) / 100} (${sign}${pct}%)`);
+        }
+      }
+  
+      if (buffParts.length) {
+        parts.push(`對 ${tgtTeam} ${tgtGroup} ${toText} 施加 BUFF：${buffParts.join("，")}`);
+      } else {
+        // 若 buff 結構存在但沒有 add/mul 可顯示
+        parts.push(`對 ${tgtTeam} ${tgtGroup} ${toText} 施加 BUFF`);
+      }
+    }
+  
+    // 若前面都沒描述（例如只有 desc），回傳 desc 或空字串
+    if (parts.length === 0) {
+      if (sk.desc) return String(sk.desc);
+      return "";
+    }
+  
+    // 若 sk.desc 存在，把它放在最前面作為說明
+    if (sk.desc) parts.unshift(String(sk.desc));
+  
+    // 用中文分號分隔（也可以用換行 "\n"）
+    return parts.join("\n");
   }
   // -----------------------------------------------------------
 
@@ -358,34 +449,38 @@ export default function TacticsExtended() {
           <div className="flex gap-4 items-start">
             <div className="w-80 space-y-3">
               <div className="p-3 rounded-xl border shadow-sm">
-                <div className="font-semibold mb-2">單位列表（可點擊查看）</div>
-                <div className="space-y-2 max-h-[28rem] overflow-auto">
-                  {/* 只顯示被選中的單位（若無選取則顯示提示） */}
+                <div className="font-semibold mb-2">選中單位）</div>
                   {gs.selectedUnitId ? (() => {
                     const u = gs.units.find((x) => x.id === gs.selectedUnitId);
                     if (!u) return <div className="text-sm text-slate-500 p-2">目前選取的單位不在場上。</div>;
+
+                    const atkB = u.base.ATK ?? 0, atkE = getStat(u, "ATK");
+                    const defB = u.base.DEF ?? 0, defE = getStat(u, "DEF");
+                    const matkB = u.base.MATK ?? 0, matkE = getStat(u, "MATK");
+                    const mdefB = u.base.MDEF ?? 0, mdefE = getStat(u, "MDEF");
+                    const crB = u.base.CR, crE = getStat(u, "CR");
+                    const blkB = u.base.BLK, blkE = getStat(u, "BLK");
                     const accB = u.base.ACC, accE = getStat(u, "ACC");
                     const evaB = u.base.EVA, evaE = getStat(u, "EVA");
                     const spdB = u.base.SPD, spdE = getStat(u, "SPD");
                     const movB = u.base.MOV, movE = getStat(u, "MOV");
-                    const crB = u.base.CR, crE = getStat(u, "CR");
+
+                    // active skills from unit (exclude basic)
+                    const activeSkills = (u.skills || []).filter((s) => !s.isBasic);
+
                     return (
                       <div
                         key={u.id}
-                        // 保留點擊選取（如果你還想用點擊左側來取消或再次選中）
                         onClick={() => {
                           gs.selectedUnitId = u.id;
                           gs.selectedSkillId = undefined;
                           setGs({ ...gs });
                         }}
-                        className={`p-2 rounded-lg border cursor-pointer hover:bg-slate-50 ${
-                          u.alive ? "" : "opacity-50"
-                        } bg-slate-200 border-blue-400`} // 明顯標示為被選中
+                        className={`p-2 rounded-lg border ${u.alive ? "" : "opacity-50"}`}
                       >
                         <div className="flex items-center justify-between">
                           <div className="font-semibold">
-                            {u.id}{" "}
-                            <span className="text-xs text-slate-500">[{u.cls}]</span>
+                            {u.id} <span className="text-xs text-slate-500">[{u.cls}]</span>
                           </div>
                           <div className="flex gap-2">
                             <div className="text-xs px-2 py-1 rounded-full bg-slate-100 border border-slate-300">
@@ -396,31 +491,43 @@ export default function TacticsExtended() {
                             </div>
                           </div>
                         </div>
+
                         <div className="mt-1 flex gap-2 flex-wrap text-[11px]">
-                          <StatPillDiff label="ACC" base={accB} eff={accE} />
-                          <StatPillDiff label="EVA" base={evaB} eff={evaE} />
-                          <StatPillDiff label="CR" base={crB * 100} eff={crE * 100} suffix="%" />
-                          <StatPillDiff label="SPD" base={spdB} eff={spdE} />
-                          <StatPillDiff label="MOV" base={movB} eff={movE} />
-                          <div
-                            className="text-[11px] px-2 py-1 rounded-full bg-slate-100 border border-slate-300"
-                            title={`物${Templates[u.cls].finalDR.physical} 魔${Templates[u.cls].finalDR.magical}`}
-                          >
-                            BLK: <b>{Math.round(getStat(u, "BLK") * 100)}%</b>
-                          </div>
+                          <StatPillDiff label="攻擊" base={atkB} eff={atkE} />
+                          <StatPillDiff label="防禦" base={defB} eff={defE} />
+                          <StatPillDiff label="魔攻" base={matkB} eff={matkE} />
+                          <StatPillDiff label="魔防" base={mdefB} eff={mdefE} />
+                          <StatPillDiff label="暴率" base={crB} eff={crE} suffix="%" />
+                          <StatPillDiff label="格擋" base={blkB} eff={blkE} suffix="%" />
+                          <StatPillDiff label="命中" base={accB} eff={accE} />
+                          <StatPillDiff label="迴避" base={evaB} eff={evaE} />
+                          <StatPillDiff label="速度" base={spdB} eff={spdE} />
+                          <StatPillDiff label="移動" base={movB} eff={movE} />
+
+                          {/* 被動 與 主動技能區塊 */}
                           <div
                             className="text-[11px] px-2 py-1 rounded-full bg-slate-100 border border-slate-300"
                             title={passiveTooltip(Templates[u.cls].passive)}
                           >
                             被動：{Templates[u.cls].passive.name}
                           </div>
+
+                          {/* 將主動技能列在被動後面（每個技能為小 badge，hover 顯示 tooltip） */}
+                          {activeSkills.map((sk) => (
+                            <div
+                              key={sk.id}
+                              className="text-[11px] px-2 py-1 rounded-full bg-amber-50 border border-amber-200 cursor-help"
+                              title={skillTooltip(sk)}
+                            >
+                              {sk.name}{sk.mpCost ? ` (${sk.mpCost}MP)` : ""}
+                            </div>
+                          ))}
                         </div>
                       </div>
                     );
                   })() : (
                     <div className="text-sm text-slate-500 p-2">尚未選取單位。</div>
                   )}
-                </div>
               </div>
 
               <div className="p-3 rounded-xl border shadow-sm">
@@ -467,15 +574,26 @@ export default function TacticsExtended() {
                       gs.phase === "select-target" &&
                       targetTiles.some((t) => t.x === col && t.y === row);
                     return (
-                      <Tile
+                      <div
                         key={`${col},${row}`}
-                        gs={gs}
-                        x={col}
-                        y={row}
-                        highlighted={highlighted}
-                        danger={danger}
-                        onClick={() => onTileClick(col, row)}
-                      />
+                        onMouseEnter={() => {
+                          if (gs.phase === "select-target" && selected && selectedSkill) {
+                            setHoverTile({ x: col, y: row });
+                          }
+                        }}
+                        onMouseLeave={() => {
+                          if (gs.phase === "select-target") setHoverTile(null);
+                        }}
+                      >
+                        <Tile
+                          gs={gs}
+                          x={col}
+                          y={row}
+                          highlighted={highlighted}
+                          danger={danger}
+                          onClick={() => onTileClick(col, row)}
+                        />
+                      </div>
                     );
                   })
                 )}
@@ -563,7 +681,7 @@ export default function TacticsExtended() {
                                       gs.selectedSkillId = sk.id;
                                       setGs({ ...gs });
                                     }}
-                                    title={`對 ${sk.targetTeam} 造成 ${sk.multiplier} 倍 ${sk.targetGroup} ${sk.type} 傷害` }
+                                    title={skillTooltip(sk)}
                                   >
                                     {sk.name}（{sk.mpCost} MP / {areaLabel}）
                                   </button>
@@ -633,25 +751,6 @@ export default function TacticsExtended() {
       )}
     </div>
   );
-}
-
-// helper for passive tooltip re-used in this file
-function passiveTooltip(p: any): string {
-  const parts: string[] = [];
-  if (p.baseAdd)
-    for (const [k, v] of Object.entries(p.baseAdd))
-      parts.push(
-        `${k}+${
-          k === "CR" || k === "BLK" ? Math.round((v as number) * 100) + "%" : v
-        }`
-      );
-  if (p.baseMul)
-    for (const [k, v] of Object.entries(p.baseMul)) parts.push(`${k}×${v}`);
-  if (p.postDR) {
-    if (p.postDR.physical != null) parts.push(`最終物減×${p.postDR.physical}`);
-    if (p.postDR.magical != null) parts.push(`最終魔減×${p.postDR.magical}`);
-  }
-  return parts.length ? parts.join("；") : "—";
 }
 
 // getStat is used above in UI; import it dynamically to avoid cyc deps

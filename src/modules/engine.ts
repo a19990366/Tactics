@@ -24,6 +24,10 @@ function inBounds(gs: GameState, x: number, y: number) {
   return x >= 0 && x < gs.width && y >= 0 && y < gs.height;
 }
 
+function fallbackFacingDir(team: any) {
+  return 1; // 向右為預設
+}
+
 function normalizeCardinal(u: Unit, focus?: { x: number; y: number } | null) {
   if (!focus) return null;
   const dx = focus.x - u.x;
@@ -41,6 +45,18 @@ export function manhattan(
   b: { x: number; y: number }
 ) {
   return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
+
+export function calcDir(
+  caster: Unit,
+  clicked?: { x: number; y: number } | null
+): { dx: number; dy: number } | null {
+  if (!clicked) return null;
+  const dxRaw = clicked.x - caster.x;
+  const dyRaw = clicked.y - caster.y;
+  if (dxRaw === 0 && dyRaw === 0) return null;
+  if (Math.abs(dxRaw) >= Math.abs(dyRaw)) return { dx: Math.sign(dxRaw), dy: 0 };
+  return { dx: 0, dy: Math.sign(dyRaw) };
 }
 
 // movement / area
@@ -75,66 +91,68 @@ export function getReachable(gs: GameState, u: Unit) {
   return res;
 }
 
-export function getLineTiles(gs: GameState, u: Unit, rangeFront: number) {
-  const tiles: { x: number; y: number }[] = [];
-  const dirs = [
-    { dx: 1, dy: 0 },
-    { dx: -1, dy: 0 },
-    { dx: 0, dy: 1 },
-    { dx: 0, dy: -1 },
-  ];
-  for (const d of dirs) {
-    for (let r = 1; r <= rangeFront; r++) {
-      const x = u.x + d.dx * r,
-        y = u.y + d.dy * r;
-      if (!inBounds(gs, x, y)) break;
-      tiles.push({ x, y });
-    }
+export function getLineTiles(
+  gs: GameState,
+  u: Unit,
+  rangeFront: number,
+  clicked?: { x: number; y: number } | null
+) {
+  // 計算方向：優先以 clicked 決定；若沒有，fallback 用面向
+  let dir = calcDir(u, clicked ?? null);
+  if (!dir) {
+    // fallback to facingDir (horizontal) if available, otherwise to right
+    const f = (typeof (u as any).team !== "undefined") ? fallbackFacingDir((u as any).team) : 1;
+    dir = { dx: f, dy: 0 };
   }
-  return tiles;
+
+  const out: { x: number; y: number }[] = [];
+  for (let r = 1; r <= rangeFront; r++) {
+    const nx = u.x + dir.dx * r;
+    const ny = u.y + dir.dy * r;
+    if (!inBounds(gs, nx, ny)) break;
+    out.push({ x: nx, y: ny });
+  }
+  return out;
 }
 
 export function getRectTiles(
   gs: GameState,
   u: Unit,
   rectW: number,
-  rectD: number
+  rectD: number,
+  clicked?: { x: number; y: number } | null
 ) {
+  // 計算方向：優先以 clicked 決定；若沒有則 fallback 用面向
+  let dir = calcDir(u, clicked ?? null);
+  if (!dir) {
+    const f = (typeof (u as any).team !== "undefined") ? fallbackFacingDir((u as any).team) : 1;
+    dir = { dx: f, dy: 0 };
+  }
+
   const tiles: { x: number; y: number }[] = [];
-  // rectW = width (左右寬度), rectD = depth (向前延伸)
-  const dirs = [1, -1, 0, 0]; // we'll iterate four canonical orientations manually
-  // right
-  for (let d = 1; d <= rectD; d++) {
-    for (let w = -Math.floor((rectW - 1) / 2); w <= Math.floor((rectW - 1) / 2) + (rectW % 2 === 0 ? 1 : 0); w++) {
-      const x = u.x + d;
-      const y = u.y + w;
-      if (inBounds(gs, x, y)) tiles.push({ x, y });
+  const half = Math.floor((rectW - 1) / 2);
+  const extra = rectW % 2 === 0 ? 1 : 0;
+
+  if (dir.dx !== 0) {
+    // 水平矩形（深度沿 x，寬度沿 y）
+    for (let depth = 1; depth <= rectD; depth++) {
+      const baseX = u.x + dir.dx * depth;
+      for (let w = -half; w <= half + extra; w++) {
+        const ny = u.y + w;
+        if (inBounds(gs, baseX, ny)) tiles.push({ x: baseX, y: ny });
+      }
+    }
+  } else {
+    // 垂直矩形（深度沿 y，寬度沿 x）
+    for (let depth = 1; depth <= rectD; depth++) {
+      const baseY = u.y + dir.dy * depth;
+      for (let w = -half; w <= half + extra; w++) {
+        const nx = u.x + w;
+        if (inBounds(gs, nx, baseY)) tiles.push({ x: nx, y: baseY });
+      }
     }
   }
-  // left
-  for (let d = 1; d <= rectD; d++) {
-    for (let w = -Math.floor((rectW - 1) / 2); w <= Math.floor((rectW - 1) / 2) + (rectW % 2 === 0 ? 1 : 0); w++) {
-      const x = u.x - d;
-      const y = u.y + w;
-      if (inBounds(gs, x, y)) tiles.push({ x, y });
-    }
-  }
-  // down
-  for (let d = 1; d <= rectD; d++) {
-    for (let w = -Math.floor((rectW - 1) / 2); w <= Math.floor((rectW - 1) / 2) + (rectW % 2 === 0 ? 1 : 0); w++) {
-      const x = u.x + w;
-      const y = u.y + d;
-      if (inBounds(gs, x, y)) tiles.push({ x, y });
-    }
-  }
-  // up
-  for (let d = 1; d <= rectD; d++) {
-    for (let w = -Math.floor((rectW - 1) / 2); w <= Math.floor((rectW - 1) / 2) + (rectW % 2 === 0 ? 1 : 0); w++) {
-      const x = u.x + w;
-      const y = u.y - d;
-      if (inBounds(gs, x, y)) tiles.push({ x, y });
-    }
-  }
+
   return tiles;
 }
 
@@ -153,10 +171,19 @@ export function getSelfAreaTiles(gs: GameState, u: Unit, rangeFront: number) {
   return res;
 }
 
-export function getAreaTiles(gs: GameState, u: Unit, sk: Skill) {
-  if (sk.area.kind === "Line") return getLineTiles(gs, u, sk.rangeFront);
-  if (sk.area.kind === "Rect")
-    return getRectTiles(gs, u, sk.area.rectW, sk.area.rectD);
+export function getAreaTiles(
+  gs: GameState,
+  u: Unit,
+  sk: Skill,
+  clicked?: { x: number; y: number } | null
+) {
+  if (!sk || !sk.area) return [];
+  if (sk.area.kind === "Line") {
+    return getLineTiles(gs, u, sk.rangeFront ?? 1, clicked ?? null);
+  }
+  if (sk.area.kind === "Rect") {
+    return getRectTiles(gs, u, sk.area.rectW, sk.area.rectD, clicked ?? null);
+  }
   return getSelfAreaTiles(gs, u, sk.rangeFront);
 }
 
@@ -177,9 +204,7 @@ export function buildBaseFromTemplate(tpl: UnitTemplate) {
   };
   const p = tpl.passive || {};
   const baseAdd = { ...(p.baseAdd || {}) } as Record<string, number>;
-  if (p.addCR) baseAdd.CR = (baseAdd.CR || 0) + p.addCR;
   const baseMul = { ...(p.baseMul || {}) } as Record<string, number>;
-  if (p.defMul) baseMul.DEF = (baseMul.DEF || 1) * p.defMul;
 
   (Object.keys(base) as StatKey[]).forEach((k) => {
     if ((baseAdd as any)[k] != null) base[k] += (baseAdd as any)[k];
@@ -226,11 +251,14 @@ export function createUnit(
 }
 
 export function getStat(u: Unit, key: StatKey) {
-  let v = u.base[key];
+  let v = u.base[key as keyof typeof u.base] as any;
+  if (v == null) v = 0;
+
   for (const b of u.buffs) if (b.add && b.add[key] != null) v += b.add[key]!;
   let mul = 1;
   for (const b of u.buffs) if (b.mul && b.mul[key] != null) mul *= b.mul[key]!;
   v *= mul;
+
   if (key === "CR") v = clamp(v, 0, CR_CAP);
   if (key === "BLK") v = clamp(v, 0, BK_CAP);
   return v;
@@ -448,77 +476,58 @@ export function collectTargets(
     return (wantEnemy && isEnemy) || (wantAlly && isAlly);
   }
 
-  // Helper: unit at clicked tile
   const clickedUnit = unitAt(gs, clicked.x, clicked.y);
 
-  // --- SelfArea (自身範圍) ---
+  // SelfArea（自身範圍）
   if (skill.area.kind === "SelfArea") {
     const tiles = getSelfAreaTiles(gs, caster, skill.rangeFront);
     const set = new Set(tiles.map((t) => `${t.x},${t.y}`));
 
-    // 若技能本身設為只對 self，直接返回 caster
+    // 若技能註記為只能對 self
     if (skill.targetGroup === "single" && skill.effects?.applyBuff?.to === "self")
       return [caster];
 
-    // 若 targetGroup 是 single，且玩家是點擊範圍內某格 -> 以該格的 unit 為目標（若合法）
     if (skill.targetGroup === "single") {
-      if (clickedUnit && set.has(`${clickedUnit.x},${clickedUnit.y}`) && include(clickedUnit)) {
+      if (clickedUnit && set.has(`${clickedUnit.x},${clickedUnit.y}`) && include(clickedUnit))
         return [clickedUnit];
-      } else {
-        return []; // single target but clicked empty 或不合法
-      }
+      return [];
     }
 
-    // 否則（group/area）回傳範圍內所有合法 unit
-    const list = gs.units.filter((u) => set.has(`${u.x},${u.y}`) && include(u));
-    return list;
-  }
-
-  // --- Rect (矩形) ---
-  if (skill.area.kind === "Rect") {
-    const tiles = getRectTiles(gs, caster, skill.area.rectW, skill.area.rectD);
-    // 若 click 不在矩形範圍內，直接回空
-    if (!tiles.find((t) => t.x === clicked.x && t.y === clicked.y)) return [];
-
-    const set = new Set(tiles.map((t) => `${t.x},${t.y}`));
-
-    // 如果是 single-target（玩家想指定範圍內某一格）
-    if (skill.targetGroup === "single") {
-      if (clickedUnit && set.has(`${clickedUnit.x},${clickedUnit.y}`) && include(clickedUnit)) {
-        return [clickedUnit];
-      } else {
-        return [];
-      }
-    }
-
-    // 否則回傳矩形內所有符合 include 的單位
+    // group：回傳範圍內所有符合條件的單位
     return gs.units.filter((u) => set.has(`${u.x},${u.y}`) && include(u));
   }
 
-  // --- Line (直線) ---
-  // 直線已經是以 clicked 位置決定方向 (你的原本實作)
-  const aligned = clicked.x === caster.x || clicked.y === caster.y;
-  if (!aligned) return [];
-  const dx = Math.sign(clicked.x - caster.x);
-  const dy = Math.sign(clicked.y - caster.y);
-  if (dx !== 0 && dy !== 0) return [];
-  const tiles: { x: number; y: number }[] = [];
-  for (let r = 1; r <= skill.rangeFront; r++) {
-    const x = caster.x + dx * r,
-      y = caster.y + dy * r;
-    if (!inBounds(gs, x, y)) break;
-    tiles.push({ x, y });
-  }
-  const setLine = new Set(tiles.map((t) => `${t.x},${t.y}`));
-  const inLine = gs.units.filter((u) => setLine.has(`${u.x},${u.y}`) && include(u));
+  // Rect（以 clicked 決定方向）
+  if (skill.area.kind === "Rect") {
+    const tiles = getRectTiles(gs, caster, skill.area.rectW, skill.area.rectD, clicked);
+    // 如果 click 不在矩形內 (代表 direction 不合法或 click 與 caster 太近/同格)
+    if (!tiles.find((t) => t.x === clicked.x && t.y === clicked.y)) return [];
 
-  if (skill.targetGroup === "single") {
-    // single-target line：以 clicked 的那格為單體（若為單位且合法）
-    const u = unitAt(gs, clicked.x, clicked.y);
-    return u && include(u) ? [u] : [];
+    const set = new Set(tiles.map((t) => `${t.x},${t.y}`));
+    if (skill.targetGroup === "single") {
+      return (clickedUnit && set.has(`${clickedUnit.x},${clickedUnit.y}`) && include(clickedUnit)) ? [clickedUnit] : [];
+    }
+    // group -> 回傳矩形內所有符合條件
+    return gs.units.filter((u) => set.has(`${u.x},${u.y}`) && include(u));
   }
 
-  return inLine;
+  // Line（以 clicked 決定方向）
+  if (skill.area.kind === "Line") {
+    const tiles = getLineTiles(gs, caster, skill.rangeFront ?? 1, clicked);
+    if (!tiles.length) return [];
+
+    const set = new Set(tiles.map((t) => `${t.x},${t.y}`));
+    if (skill.targetGroup === "single") {
+      // single -> 必須點中一個單位
+      const u = unitAt(gs, clicked.x, clicked.y);
+      return u && set.has(`${u.x},${u.y}`) && include(u) ? [u] : [];
+    }
+    // group -> 回傳直線上的所有符合條件單位
+    return gs.units.filter((u) => set.has(`${u.x},${u.y}`) && include(u));
+  }
+
+  // fallback
+  return [];
 }
 
 export function doCast(
