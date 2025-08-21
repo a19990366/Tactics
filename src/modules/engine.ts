@@ -9,7 +9,7 @@ import {
   BuffSpec,
   AttackType,
 } from "./types";
-import { Templates, SHORT, ClassKey } from "./templates";
+import { Templates, ClassKey } from "./templates";
 import { log } from "./logs";
 
 export const CRIT_DMG = 1.5;
@@ -55,7 +55,8 @@ export function calcDir(
   const dxRaw = clicked.x - caster.x;
   const dyRaw = clicked.y - caster.y;
   if (dxRaw === 0 && dyRaw === 0) return null;
-  if (Math.abs(dxRaw) >= Math.abs(dyRaw)) return { dx: Math.sign(dxRaw), dy: 0 };
+  if (Math.abs(dxRaw) >= Math.abs(dyRaw))
+    return { dx: Math.sign(dxRaw), dy: 0 };
   return { dx: 0, dy: Math.sign(dyRaw) };
 }
 
@@ -101,7 +102,10 @@ export function getLineTiles(
   let dir = calcDir(u, clicked ?? null);
   if (!dir) {
     // fallback to facingDir (horizontal) if available, otherwise to right
-    const f = (typeof (u as any).team !== "undefined") ? fallbackFacingDir((u as any).team) : 1;
+    const f =
+      typeof (u as any).team !== "undefined"
+        ? fallbackFacingDir((u as any).team)
+        : 1;
     dir = { dx: f, dy: 0 };
   }
 
@@ -125,7 +129,10 @@ export function getRectTiles(
   // 計算方向：優先以 clicked 決定；若沒有則 fallback 用面向
   let dir = calcDir(u, clicked ?? null);
   if (!dir) {
-    const f = (typeof (u as any).team !== "undefined") ? fallbackFacingDir((u as any).team) : 1;
+    const f =
+      typeof (u as any).team !== "undefined"
+        ? fallbackFacingDir((u as any).team)
+        : 1;
     dir = { dx: f, dy: 0 };
   }
 
@@ -194,12 +201,12 @@ export function buildBaseFromTemplate(tpl: UnitTemplate) {
     DEF: tpl.DEF,
     MATK: tpl.MATK,
     MDEF: tpl.MDEF,
+    CR: tpl.CR,
+    BLK: tpl.BLK,
     ACC: tpl.ACC,
     EVA: tpl.EVA,
-    CR: tpl.CR,
     SPD: tpl.SPD,
     MOV: tpl.MOV,
-    BLK: tpl.BLK,
     mpRegen: 3,
   };
   const p = tpl.passive || {};
@@ -330,13 +337,9 @@ export function resolveAttack(
 ) {
   const type = skill.type;
   const atk =
-    type === "Physical"
-      ? getStat(attacker, "ATK")
-      : getStat(attacker, "MATK") / 4;
+    type === "Physical" ? getStat(attacker, "ATK") : getStat(attacker, "MATK");
   const def =
-    type === "Physical"
-      ? getStat(defender, "DEF")
-      : getStat(defender, "MDEF") / 4;
+    type === "Physical" ? getStat(defender, "DEF") : getStat(defender, "MDEF");
 
   const { ok: hitOk, hitPct } = rollHit(attacker, defender);
   if (!hitOk)
@@ -484,11 +487,18 @@ export function collectTargets(
     const set = new Set(tiles.map((t) => `${t.x},${t.y}`));
 
     // 若技能註記為只能對 self
-    if (skill.targetGroup === "single" && skill.effects?.applyBuff?.to === "self")
+    if (
+      skill.targetGroup === "single" &&
+      skill.effects?.applyBuff?.to === "self"
+    )
       return [caster];
 
     if (skill.targetGroup === "single") {
-      if (clickedUnit && set.has(`${clickedUnit.x},${clickedUnit.y}`) && include(clickedUnit))
+      if (
+        clickedUnit &&
+        set.has(`${clickedUnit.x},${clickedUnit.y}`) &&
+        include(clickedUnit)
+      )
         return [clickedUnit];
       return [];
     }
@@ -499,13 +509,23 @@ export function collectTargets(
 
   // Rect（以 clicked 決定方向）
   if (skill.area.kind === "Rect") {
-    const tiles = getRectTiles(gs, caster, skill.area.rectW, skill.area.rectD, clicked);
+    const tiles = getRectTiles(
+      gs,
+      caster,
+      skill.area.rectW,
+      skill.area.rectD,
+      clicked
+    );
     // 如果 click 不在矩形內 (代表 direction 不合法或 click 與 caster 太近/同格)
     if (!tiles.find((t) => t.x === clicked.x && t.y === clicked.y)) return [];
 
     const set = new Set(tiles.map((t) => `${t.x},${t.y}`));
     if (skill.targetGroup === "single") {
-      return (clickedUnit && set.has(`${clickedUnit.x},${clickedUnit.y}`) && include(clickedUnit)) ? [clickedUnit] : [];
+      return clickedUnit &&
+        set.has(`${clickedUnit.x},${clickedUnit.y}`) &&
+        include(clickedUnit)
+        ? [clickedUnit]
+        : [];
     }
     // group -> 回傳矩形內所有符合條件
     return gs.units.filter((u) => set.has(`${u.x},${u.y}`) && include(u));
@@ -576,75 +596,149 @@ export function aiTakeTurn(gs: GameState) {
     endTurn(gs);
     return;
   }
+
+  // 選中目前單位（UI 顯示）
   gs.selectedUnitId = u.id;
-  gs.selectedSkillId = '';
+  gs.selectedSkillId = undefined;
+
   const basic = u.skills.find((s) => s.isBasic)!;
   const actives = u.skills.filter((s) => !s.isBasic && u.mp >= s.mpCost);
   const skillsToTry: Skill[] = [basic, ...actives];
 
+  // 候選移動格（包含原地）
   const candidates = [{ x: u.x, y: u.y }, ...getReachable(gs, u)];
+
+  // 用來評估一組 targets 對我方/敵方的 score（越高越好）
   const areaScore = (list: Unit[], sk: Skill) => {
     let score = 0;
     for (const t of list) {
       if (t.team !== u.team) {
+        // resolveAttack 預期回傳 damage (數值)，若沒有可自行調整
         const r = resolveAttack(gs, u, t, sk);
-        score += r.damage;
+        // 傷害比純數值更要緊，乘上小權重以優先考慮造成傷害的選項
+        score += (r.damage ?? 0) * 1.0;
       }
     }
+    // 回復價值（簡單 heuristics）
     if (sk.effects?.healHP || sk.effects?.restoreMP) {
       for (const t of list) {
-        if (t.team === u.team)
-          score += (sk.effects.healHP || 0) + (sk.effects.restoreMP || 0) * 10;
+        if (t.team === u.team) {
+          // HP 比 MP 更值錢，給不同權重
+          score += (sk.effects.healHP ?? 0) * 0.8;
+          score += (sk.effects.restoreMP ?? 0) * 0.3;
+        }
       }
     }
     return score;
   };
+
+  // 準備整張棋盤的格子（AI 會在 candidate pos 下模擬「點擊」這些格子以決定方向）
+  const boardClicks: { x: number; y: number }[] = [];
+  for (let yy = 0; yy < gs.height; yy++) {
+    for (let xx = 0; xx < gs.width; xx++) {
+      boardClicks.push({ x: xx, y: yy });
+    }
+  }
 
   let best: null | {
     moveTo: { x: number; y: number };
     skill: Skill;
     targets: Unit[];
     est: number;
+    clicked: { x: number; y: number };
   } = null;
 
+  // 對每個候選移動位置模擬
   for (const pos of candidates) {
     const old = { x: u.x, y: u.y };
     u.x = pos.x;
     u.y = pos.y;
+
     for (const sk of skillsToTry) {
-      const tiles = getAreaTiles(gs, u, sk);
-      for (const tile of tiles.length ? tiles : [{ x: u.x, y: u.y }]) {
-        const targets = collectTargets(gs, u, sk, tile);
-        if (!targets.length) continue;
+      // 若 mp 不夠，跳過（basic 已包含）
+      if (sk.mpCost && u.mp < sk.mpCost) continue;
+
+      // 針對每個可能的 clicked（模擬玩家在某格點選來決定方向/目標）
+      // 這裡我們遍歷整張棋盤（若 map 很大你可以限制到一定半徑以加速）
+      for (const clicked of boardClicks) {
+        // 先用 getAreaTiles 模擬該 clicked 會產生哪些 tiles（direction 由 clicked 決定）
+        const tiles = getAreaTiles(gs, u, sk, clicked);
+        if (!tiles || tiles.length === 0) {
+          // 若技能是 SelfArea，也允許以自身為 clicked
+          if (sk.area.kind === "SelfArea") {
+            // use caster tile as clicked
+            // collectTargets 會處理 self area
+            const targets = collectTargets(gs, u, sk, { x: u.x, y: u.y });
+            if (!targets.length) continue;
+            const score = areaScore(targets, sk);
+            // 偏好技能（若等分則偏好消耗較多 MP 的）
+            const preferMP = (sk.mpCost ?? 0) * 0.001;
+            const finalScore = score + preferMP;
+            if (!best || finalScore > best.est) {
+              best = {
+                moveTo: { x: pos.x, y: pos.y },
+                skill: sk,
+                targets,
+                est: finalScore,
+                clicked: { x: u.x, y: u.y },
+              };
+            }
+          }
+          continue;
+        }
+
+        // 有範圍時用 collectTargets 去決定實際 targets（會根據 clicked 區分 single / group）
+        const targets = collectTargets(gs, u, sk, clicked);
+        if (!targets || !targets.length) continue;
+
         const score = areaScore(targets, sk);
-        if (!best || score > best.est)
+        // 小 heuristic: 若 skill 為 active（非 basic），額外加分鼓勵使用技能
+        const activeBonus = sk.isBasic ? 0 : 0.1;
+        // 若消耗 MP 較多，也微幅加分（讓 AI 偏好用強技）
+        const preferMP = (sk.mpCost ?? 0) * 0.001;
+
+        const finalScore = score + activeBonus + preferMP;
+
+        if (!best || finalScore > best.est) {
           best = {
             moveTo: { x: pos.x, y: pos.y },
             skill: sk,
             targets,
-            est: score,
+            est: finalScore,
+            clicked,
           };
-      }
-    }
+        }
+      } // end clicked loop
+    } // end skills loop
+
+    // restore position
     u.x = old.x;
     u.y = old.y;
-  }
+  } // end candidates loop
 
+  // 如果找到可用的最好方案，執行移動 + 施法
   if (best) {
     if (best.moveTo.x !== u.x || best.moveTo.y !== u.y) {
       u.x = best.moveTo.x;
       u.y = best.moveTo.y;
       u.movedThisTurn = true;
     }
+
+    // 若需要把 selectedSkillId 設定給 UI 顯示，可設定
+    gs.selectedSkillId = best.skill.id;
+
+    // doCast 仍用 collectTargets 決定真正 targets（但我們已經算好了）
     doCast(gs, u, best.skill, best.targets);
+
     endTurn(gs);
     return;
   }
 
+  // 如果沒找到技能可用的最佳方案，就用原本的「向最近敵人靠近」邏輯移動
   const moveTiles = getReachable(gs, u);
   if (moveTiles.length) {
     const enemies = gs.units.filter((x) => x.alive && x.team !== u.team);
-    const bestTile = moveTiles.sort((a, b) => {
+    const bestTile = moveTiles.slice().sort((a, b) => {
       const da = Math.min(...enemies.map((e) => manhattan(a, e)));
       const db = Math.min(...enemies.map((e) => manhattan(b, e)));
       if (da !== db) return da - db;
@@ -657,6 +751,7 @@ export function aiTakeTurn(gs: GameState) {
       u.movedThisTurn = true;
     }
   }
+
   endTurn(gs);
 }
 
@@ -671,13 +766,7 @@ export function createTeamUnits(
   return classList
     .slice(0, 4)
     .map((cls, i) =>
-      createUnit(
-        `${team}_${SHORT[cls]}${i + 1}`,
-        team,
-        Templates[cls],
-        x,
-        START_ROWS[i]
-      )
+      createUnit(`${team}_${i + 1}`, team, Templates[cls], x, START_ROWS[i])
     );
 }
 
@@ -820,13 +909,6 @@ export function runSelfTests(): string[] {
     gs4.turnOrder[0] === "B1",
     `order=${gs4.turnOrder.join(",")}`
   );
-
-  const adm = createUnit("Adm", "A", Templates.ADMIN, 1, 1);
-  const beforeSPD = getStat(adm, "SPD"),
-    beforeMOV = getStat(adm, "MOV");
-  addBuff(adm, { name: "測速", turns: 1, add: { SPD: 2, MOV: 1 } });
-  pass("Admin Buff SPD+2", getStat(adm, "SPD") === beforeSPD + 2);
-  pass("Admin Buff MOV+1", getStat(adm, "MOV") === beforeMOV + 1);
 
   return results;
 }

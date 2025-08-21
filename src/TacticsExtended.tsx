@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   initGameWithRosters,
   currentUnit,
@@ -23,6 +23,7 @@ import { StatPillDiff } from "./components/StatPillDiff";
 import { Tile } from "./components/Tile";
 import { SelectSlot } from "./components/SelectSlot";
 import { initLog, logs } from "./modules/logs";
+import { ManageTemplates } from "./components/ManageTemplates";
 
 export default function TacticsExtended() {
   const [mode, setMode] = useState<"PvE" | "PvP">("PvE");
@@ -42,7 +43,11 @@ export default function TacticsExtended() {
     initGameWithRosters("PvE", lastRoster.p1, lastRoster.p2)
   );
   // hover / preview focus tile for target direction
-  const [hoverTile, setHoverTile] = useState<{ x: number; y: number } | null>(null);
+  const [hoverTile, setHoverTile] = useState<{ x: number; y: number } | null>(
+    null
+  );
+  const [showManager, setShowManager] = useState(false);
+
   // ------------------------------------------------------
 
   const me = currentUnit(gs);
@@ -131,8 +136,7 @@ export default function TacticsExtended() {
 
   const startGame = () => {
     const p1 = fillRandomIfEmpty(p1Sel);
-    const p2 =
-      mode === "PvP" ? fillRandomIfEmpty(p2Sel) : randomRoster(4, allowDup);
+    const p2 = fillRandomIfEmpty(p2Sel);
     initLog();
     const s = initGameWithRosters(mode, p1, p2);
     setLastRoster({ p1, p2 });
@@ -176,13 +180,15 @@ export default function TacticsExtended() {
         tiles.some((t) => t.x === x && t.y === y) ||
         selectedSkill.area.kind === "SelfArea"; // self area 不需方向
       if (!okTile) return;
-    
+
       if (selected.actedThisTurn) return;
       if (selected.mp < selectedSkill.mpCost) return;
-    
+
       // 找出點到的單位（若有）
-      const clickedUnit = gs.units.find((uu) => uu.alive && uu.x === x && uu.y === y);
-    
+      const clickedUnit = gs.units.find(
+        (uu) => uu.alive && uu.x === x && uu.y === y
+      );
+
       // 如果是 single-target 且 clickedUnit 存在 -> 將左邊常駐選中切換到該單位（UI 顯示）
       if (selectedSkill.targetGroup === "single") {
         if (clickedUnit) {
@@ -195,13 +201,13 @@ export default function TacticsExtended() {
         // group-target: 不需要點在單位上，點空地也會對整塊施放（按你的需求）
         // 我們不改變 selectedUnitId（保留原選取），或你可以把選取切換成 caster
       }
-    
+
       // 收集 targets（collectTargets 會用 clicked 作為 direction）
       const targets = collectTargets(gs, selected, selectedSkill, { x, y });
       if (!targets.length && selectedSkill.targetTeam !== "both") {
         return;
       }
-    
+
       doCast(gs, selected, selectedSkill, targets);
       gs.phase = "select-action";
       selected.actedThisTurn = true;
@@ -211,28 +217,72 @@ export default function TacticsExtended() {
   };
 
   // ---------- NEW: dynamic skill tooltip generator ----------
+  // 屬性中文對照表（需要顯示的常見屬性）
+  function statLabel(k: string) {
+    const map: Record<string, string> = {
+      ATK: "攻擊",
+      DEF: "防禦",
+      MATK: "魔攻",
+      MDEF: "魔防",
+      CR: "暴率",
+      BLK: "格擋",
+      ACC: "命中",
+      EVA: "迴避",
+      SPD: "速度",
+      MOV: "移動",
+      drP: "最終物減",
+      drM: "最終魔減",
+      mpRegen: "魔力回復",
+    };
+    return map[k] ?? k;
+  }
+
+  // 被動 tooltip：把 baseAdd / baseMul / postDR 翻成中文描述
   function passiveTooltip(p: any): string {
+    if (!p) return "—";
     const parts: string[] = [];
-    if (p.baseAdd)
-      for (const [k, v] of Object.entries(p.baseAdd))
-        parts.push(
-          `${k}+${
-            k === "CR" || k === "BLK" ? Math.round((v as number) * 100) + "%" : v
-          }`
-        );
-    if (p.baseMul)
-      for (const [k, v] of Object.entries(p.baseMul)) parts.push(`${k}×${v}`);
-    if (p.postDR) {
-      if (p.postDR.physical != null) parts.push(`最終物減×${p.postDR.physical}`);
-      if (p.postDR.magical != null) parts.push(`最終魔減×${p.postDR.magical}`);
+
+    if (p.baseAdd) {
+      for (const [k, v] of Object.entries(p.baseAdd)) {
+        const label = statLabel(k);
+        // 對百分比型欄位（CR, BLK）把小數轉成百分比
+        if (k === "CR" || k === "BLK") {
+          const perc = Math.round((v as number) * 10000) / 100; // 2 位小數百分比
+          const sign = (v as number) > 0 ? "+" : "";
+          parts.push(`${label} ${sign}${perc}%`);
+        } else {
+          const sign = (v as number) > 0 ? "+" : "";
+          parts.push(`${label} ${sign}${v}`);
+        }
+      }
     }
+
+    if (p.baseMul) {
+      for (const [k, v] of Object.entries(p.baseMul)) {
+        const label = statLabel(k);
+        const mul = Number(v);
+        if (!Number.isFinite(mul)) continue;
+        const pct = Math.round((mul - 1) * 10000) / 100; // +20.00%
+        const sign = pct > 0 ? "+" : "";
+        // 顯示乘法與百分比，例： ×1.20 (+20%)
+        parts.push(`${label} ×${Math.round(mul * 100) / 100} (${sign}${pct}%)`);
+      }
+    }
+
+    // postDR 或 finalDR（容錯兩個欄位）
+    const post = p.postDR ?? p.finalDR;
+    if (post) {
+      if (post.physical != null) parts.push(`最終物減 ×${post.physical}`);
+      if (post.magical != null) parts.push(`最終魔減 ×${post.magical}`);
+    }
+
     return parts.length ? parts.join("；") : "—";
   }
 
+  // skill tooltip：傷害 / 回復 / BUFF 的中文化描述，並把 buff 屬性翻成中文
   function skillTooltip(sk: any): string {
     if (!sk) return "";
-  
-    // 輔助：敵我/範圍/單體 語句
+
     const targetMap: Record<string, string> = {
       enemy: "敵方",
       ally: "我方",
@@ -242,84 +292,114 @@ export default function TacticsExtended() {
       single: "單體",
       group: "群體",
     };
-  
+
     const tgtTeam = (sk.targetTeam && targetMap[sk.targetTeam]) || "目標";
     const tgtGroup = (sk.targetGroup && groupMap[sk.targetGroup]) || "範圍";
-  
-    const parts: string[] = [];
-  
-    // 1) 傷害描述（若有 multiplier 與 type）
+
+    const lines: string[] = [];
+
+    // 如果有描述 desc 放最前面
+    if (sk.desc) lines.push(String(sk.desc));
+
+    // 1) 傷害（multiplier 與 type）
     if (typeof sk.multiplier === "number" && sk.multiplier !== 0 && sk.type) {
-      // type 可能為 "Physical" / "physical" / "MAGICAL" 等，做簡單判斷
+      // 顯示倍率：因為你的專案曾用 1+multiplier 的方式，保留彈性：
+      // 若 multiplier 看起來像額外加成 (<1) 則顯示 1+multiplier，否則顯示 multiplier 本身
+      let mult = Number(sk.multiplier);
+      if (!Number.isFinite(mult)) mult = 0;
+      const displayMult =
+        mult > 0 && mult < 1
+          ? Math.round((1 + mult) * 100) / 100
+          : Math.round(mult * 100) / 100;
       const t = String(sk.type).toLowerCase();
-      const typeText = t.includes("phys") || t.includes("physical") ? "物理" : t.includes("mag") || t.includes("magic") ? "魔法" : "傷害";
-      parts.push(`對 ${tgtTeam} ${tgtGroup} 造成 ${1+sk.multiplier} 倍 ${typeText} 傷害`);
+      const typeText =
+        t.includes("phys") || t.includes("physical")
+          ? "物理"
+          : t.includes("mag") || t.includes("magic")
+          ? "魔法"
+          : "傷害";
+      lines.push(
+        `對 ${tgtTeam} ${tgtGroup} 造成 ${displayMult} 倍 ${typeText} 傷害`
+      );
     }
-  
-    // 2) 回復描述
+
+    // 2) 回復
     if (sk.effects) {
       if (sk.effects.healHP != null) {
-        parts.push(`對 ${tgtTeam} ${tgtGroup} 回復 ${sk.effects.healHP} 點 HP`);
+        lines.push(`對 ${tgtTeam} ${tgtGroup} 回復 ${sk.effects.healHP} 點 HP`);
       }
       if (sk.effects.restoreMP != null) {
-        parts.push(`對 ${tgtTeam} ${tgtGroup} 回復 ${sk.effects.restoreMP} 點 MP`);
+        lines.push(
+          `對 ${tgtTeam} ${tgtGroup} 回復 ${sk.effects.restoreMP} 點 MP`
+        );
       }
     }
-  
-    // 3) BUFF 描述（若有 applyBuff）
+
+    // 3) BUFF
     if (sk.effects && sk.effects.applyBuff && sk.effects.applyBuff.buff) {
       const ab = sk.effects.applyBuff;
       const toMap: Record<string, string> = {
         self: "自身",
         area: "範圍內",
-        unit: "單位",
+        unit: "目標單體",
       };
       const toText = toMap[ab.to] || String(ab.to);
-  
+
       const buff = ab.buff as any;
       const buffParts: string[] = [];
-  
-      // add 欄位 (絕對值)
+
       if (buff.add) {
         for (const [k, v] of Object.entries(buff.add)) {
-          // 數值格式化（若是百分比性質的屬性，通常會以小數表示，這裡只做通用顯示）
-          const sign = (v as number) > 0 ? "+" : "";
-          buffParts.push(`${k} ${sign}${v}`);
+          const label = statLabel(k);
+          if (k === "CR" || k === "BLK") {
+            const perc = Math.round((v as number) * 10000) / 100;
+            const sign = (v as number) > 0 ? "+" : "";
+            buffParts.push(`${label} ${sign}${perc}%`);
+          } else {
+            const sign = (v as number) > 0 ? "+" : "";
+            buffParts.push(`${label} ${sign}${v}`);
+          }
         }
       }
-  
-      // mul 欄位（倍率）
+
       if (buff.mul) {
         for (const [k, v] of Object.entries(buff.mul)) {
+          const label = statLabel(k);
           const mul = Number(v);
           if (!Number.isFinite(mul)) continue;
-          // 顯示形式：×1.2 (+20%)
-          const pct = Math.round((mul - 1) * 10000) / 100; // 2位小數百分比
+          const pct = Math.round((mul - 1) * 10000) / 100;
           const sign = pct > 0 ? "+" : "";
-          buffParts.push(`${k} ×${Math.round(mul * 100) / 100} (${sign}${pct}%)`);
+          buffParts.push(`${label} ${sign}${pct}%`);
         }
       }
-  
+
       if (buffParts.length) {
-        parts.push(`對 ${tgtTeam} ${tgtGroup} ${toText} 施加 BUFF：${buffParts.join("，")}`);
+        lines.push(
+          `對 ${tgtTeam} ${tgtGroup} ${toText} 施加 BUFF：${buffParts.join(
+            "，"
+          )}`
+        );
       } else {
-        // 若 buff 結構存在但沒有 add/mul 可顯示
-        parts.push(`對 ${tgtTeam} ${tgtGroup} ${toText} 施加 BUFF`);
+        lines.push(`對 ${tgtTeam} ${tgtGroup} ${toText} 施加 BUFF`);
       }
     }
-  
-    // 若前面都沒描述（例如只有 desc），回傳 desc 或空字串
-    if (parts.length === 0) {
-      if (sk.desc) return String(sk.desc);
-      return "";
+
+    // 如果沒有其他訊息，但有 mpCost 或範圍，也補充基本資訊
+    if (lines.length === 0) {
+      if (sk.mpCost != null) lines.push(`MP: ${sk.mpCost}`);
+      if (sk.area) {
+        if (sk.area.kind === "Line")
+          lines.push(`範圍: 直線 ${sk.rangeFront ?? "?"}`);
+        else if (sk.area.kind === "Rect")
+          lines.push(`範圍: 矩形 ${sk.area.rectW}×${sk.area.rectD}`);
+        else lines.push(`範圍: 自身 半徑 ${sk.rangeFront ?? "?"}`);
+      }
     }
-  
-    // 若 sk.desc 存在，把它放在最前面作為說明
-    if (sk.desc) parts.unshift(String(sk.desc));
-  
-    // 用中文分號分隔（也可以用換行 "\n"）
-    return parts.join("\n");
+
+    // 每個描述換行顯示，回傳字串
+    return lines.join("\n");
   }
+
   // -----------------------------------------------------------
 
   return (
@@ -327,6 +407,17 @@ export default function TacticsExtended() {
       {inSetup ? (
         <div className="p-4 flex flex-col gap-4 bg-slate-50 min-h-screen text-slate-800">
           <h1 className="text-xl font-bold">React 戰棋英雄 ⚔（擴充版）</h1>
+
+          {/* 管理頁按鈕（放右側） */}
+          <div className="ml-auto">
+            <button
+              className="px-3 py-1 rounded bg-slate-800 text-white"
+              onClick={() => setShowManager(true)}
+            >
+              職業管理
+            </button>
+          </div>
+
           <div className="flex items-center gap-3">
             <label className="text-sm">模式：</label>
             <select
@@ -366,26 +457,24 @@ export default function TacticsExtended() {
             </div>
           </div>
 
-          {mode === "PvP" && (
-            <div className="p-3 rounded-xl border shadow-sm">
-              <div className="font-semibold mb-2">P2 選角（最多 4 隻）</div>
-              <div className="grid grid-cols-2 gap-3 max-w-md">
-                {p2Sel.map((v, i) => (
-                  <SelectSlot
-                    key={i}
-                    value={v}
-                    label={`P2-${i + 1}`}
-                    options={buildOptions(p2Sel, i)}
-                    onChange={(val) => {
-                      const arr = [...p2Sel];
-                      arr[i] = val;
-                      setP2Sel(arr);
-                    }}
-                  />
-                ))}
-              </div>
+          <div className="p-3 rounded-xl border shadow-sm">
+            <div className="font-semibold mb-2">P2 選角（最多 4 隻）</div>
+            <div className="grid grid-cols-2 gap-3 max-w-md">
+              {p2Sel.map((v, i) => (
+                <SelectSlot
+                  key={i}
+                  value={v}
+                  label={`P2-${i + 1}`}
+                  options={buildOptions(p2Sel, i)}
+                  onChange={(val) => {
+                    const arr = [...p2Sel];
+                    arr[i] = val;
+                    setP2Sel(arr);
+                  }}
+                />
+              ))}
             </div>
-          )}
+          </div>
 
           <div className="flex items-center gap-3">
             <button
@@ -403,17 +492,30 @@ export default function TacticsExtended() {
             >
               清空選角
             </button>
-            {mode === "PvP" && (
-              <button
-                className="px-3 py-2 rounded bg-slate-200"
-                onClick={() => {
-                  setP2Sel(randomRoster(4, allowDup));
-                }}
-              >
-                P2 隨機
-              </button>
-            )}
           </div>
+
+          {/* Modal overlay for ManageTemplates */}
+          {showManager && (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center p-6">
+              <div className="w-full max-w-6xl h-[90vh] overflow-auto bg-white rounded-lg shadow-lg">
+                <div className="p-3 border-b flex items-center">
+                  <h3 className="font-semibold">職業管理</h3>
+                  <div className="ml-auto flex gap-2">
+                    <button
+                      className="px-3 py-1 bg-slate-200 rounded"
+                      onClick={() => setShowManager(false)}
+                    >
+                      關閉
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-4">
+                  <ManageTemplates onClose={() => setShowManager(false)} />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="p-4 flex flex-col gap-3 bg-slate-50 text-slate-800 min-h-screen">
@@ -449,24 +551,42 @@ export default function TacticsExtended() {
           <div className="flex gap-4 items-start">
             <div className="w-80 space-y-3">
               <div className="p-3 rounded-xl border shadow-sm">
-                <div className="font-semibold mb-2">選中單位）</div>
-                  {gs.selectedUnitId ? (() => {
+                <div className="font-semibold mb-2">選中單位</div>
+                {gs.selectedUnitId ? (
+                  (() => {
                     const u = gs.units.find((x) => x.id === gs.selectedUnitId);
-                    if (!u) return <div className="text-sm text-slate-500 p-2">目前選取的單位不在場上。</div>;
+                    if (!u)
+                      return (
+                        <div className="text-sm text-slate-500 p-2">
+                          目前選取的單位不在場上。
+                        </div>
+                      );
 
-                    const atkB = u.base.ATK ?? 0, atkE = getStat(u, "ATK");
-                    const defB = u.base.DEF ?? 0, defE = getStat(u, "DEF");
-                    const matkB = u.base.MATK ?? 0, matkE = getStat(u, "MATK");
-                    const mdefB = u.base.MDEF ?? 0, mdefE = getStat(u, "MDEF");
-                    const crB = u.base.CR, crE = getStat(u, "CR");
-                    const blkB = u.base.BLK, blkE = getStat(u, "BLK");
-                    const accB = u.base.ACC, accE = getStat(u, "ACC");
-                    const evaB = u.base.EVA, evaE = getStat(u, "EVA");
-                    const spdB = u.base.SPD, spdE = getStat(u, "SPD");
-                    const movB = u.base.MOV, movE = getStat(u, "MOV");
+                    const atkB = u.base.ATK ?? 0,
+                      atkE = getStat(u, "ATK");
+                    const defB = u.base.DEF ?? 0,
+                      defE = getStat(u, "DEF");
+                    const matkB = u.base.MATK ?? 0,
+                      matkE = getStat(u, "MATK");
+                    const mdefB = u.base.MDEF ?? 0,
+                      mdefE = getStat(u, "MDEF");
+                    const crB = u.base.CR,
+                      crE = getStat(u, "CR");
+                    const blkB = u.base.BLK,
+                      blkE = getStat(u, "BLK");
+                    const accB = u.base.ACC,
+                      accE = getStat(u, "ACC");
+                    const evaB = u.base.EVA,
+                      evaE = getStat(u, "EVA");
+                    const spdB = u.base.SPD,
+                      spdE = getStat(u, "SPD");
+                    const movB = u.base.MOV,
+                      movE = getStat(u, "MOV");
 
                     // active skills from unit (exclude basic)
-                    const activeSkills = (u.skills || []).filter((s) => !s.isBasic);
+                    const activeSkills = (u.skills || []).filter(
+                      (s) => !s.isBasic
+                    );
 
                     return (
                       <div
@@ -476,18 +596,29 @@ export default function TacticsExtended() {
                           gs.selectedSkillId = undefined;
                           setGs({ ...gs });
                         }}
-                        className={`p-2 rounded-lg border ${u.alive ? "" : "opacity-50"}`}
+                        className={`p-2 rounded-lg border ${
+                          u.alive ? "" : "opacity-50"
+                        }`}
                       >
                         <div className="flex items-center justify-between">
                           <div className="font-semibold">
-                            {u.id} <span className="text-xs text-slate-500">[{u.cls}]</span>
+                            {u.id}{" "}
+                            <span className="text-xs text-slate-500">
+                              [{u.cls}]
+                            </span>
                           </div>
                           <div className="flex gap-2">
                             <div className="text-xs px-2 py-1 rounded-full bg-slate-100 border border-slate-300">
-                              HP: <b>{u.hp}/{u.maxHP}</b>
+                              HP:{" "}
+                              <b>
+                                {u.hp}/{u.maxHP}
+                              </b>
                             </div>
                             <div className="text-xs px-2 py-1 rounded-full bg-slate-100 border border-slate-300">
-                              MP: <b>{u.mp}/{u.maxMP}</b>
+                              MP:{" "}
+                              <b>
+                                {u.mp}/{u.maxMP}
+                              </b>
                             </div>
                           </div>
                         </div>
@@ -497,8 +628,18 @@ export default function TacticsExtended() {
                           <StatPillDiff label="防禦" base={defB} eff={defE} />
                           <StatPillDiff label="魔攻" base={matkB} eff={matkE} />
                           <StatPillDiff label="魔防" base={mdefB} eff={mdefE} />
-                          <StatPillDiff label="暴率" base={crB} eff={crE} suffix="%" />
-                          <StatPillDiff label="格擋" base={blkB} eff={blkE} suffix="%" />
+                          <StatPillDiff
+                            label="暴率"
+                            base={crB}
+                            eff={crE}
+                            suffix="%"
+                          />
+                          <StatPillDiff
+                            label="格擋"
+                            base={blkB}
+                            eff={blkE}
+                            suffix="%"
+                          />
                           <StatPillDiff label="命中" base={accB} eff={accE} />
                           <StatPillDiff label="迴避" base={evaB} eff={evaE} />
                           <StatPillDiff label="速度" base={spdB} eff={spdE} />
@@ -519,15 +660,19 @@ export default function TacticsExtended() {
                               className="text-[11px] px-2 py-1 rounded-full bg-amber-50 border border-amber-200 cursor-help"
                               title={skillTooltip(sk)}
                             >
-                              {sk.name}{sk.mpCost ? ` (${sk.mpCost}MP)` : ""}
+                              {sk.name}
+                              {sk.mpCost ? ` (${sk.mpCost}MP)` : ""}
                             </div>
                           ))}
                         </div>
                       </div>
                     );
-                  })() : (
-                    <div className="text-sm text-slate-500 p-2">尚未選取單位。</div>
-                  )}
+                  })()
+                ) : (
+                  <div className="text-sm text-slate-500 p-2">
+                    尚未選取單位。
+                  </div>
+                )}
               </div>
 
               <div className="p-3 rounded-xl border shadow-sm">
@@ -577,7 +722,11 @@ export default function TacticsExtended() {
                       <div
                         key={`${col},${row}`}
                         onMouseEnter={() => {
-                          if (gs.phase === "select-target" && selected && selectedSkill) {
+                          if (
+                            gs.phase === "select-target" &&
+                            selected &&
+                            selectedSkill
+                          ) {
                             setHoverTile({ x: col, y: row });
                           }
                         }}
@@ -603,9 +752,12 @@ export default function TacticsExtended() {
             <div className="w-96 space-y-3">
               {me && isTeamAlive(gs, "A") && isTeamAlive(gs, "B") && (
                 <div className="p-3 rounded-xl border shadow-sm">
-                  <div className="font-semibold">目前行動：{me.id}（{me.team}）</div>
+                  <div className="font-semibold">
+                    目前行動：{me.id}（{me.team}）
+                  </div>
                   <div className="text-xs text-slate-500">
-                    位置：({me.x + 1},{me.y + 1})；可移動：{Math.floor(getStat(me, "MOV"))} 格
+                    位置：({me.x + 1},{me.y + 1})；可移動：
+                    {Math.floor(getStat(me, "MOV"))} 格
                   </div>
                   <div className="mt-2">
                     {(() => {
@@ -634,7 +786,9 @@ export default function TacticsExtended() {
                               <button
                                 disabled={!canMove}
                                 className={`px-3 py-1 rounded ${
-                                  canMove ? "bg-emerald-600 text-white" : "bg-slate-300 text-slate-500"
+                                  canMove
+                                    ? "bg-emerald-600 text-white"
+                                    : "bg-slate-300 text-slate-500"
                                 }`}
                                 onClick={() => {
                                   gs.phase = "select-move";
@@ -649,7 +803,9 @@ export default function TacticsExtended() {
                               <button
                                 disabled={!canAct}
                                 className={`px-3 py-1 rounded ${
-                                  canAct ? "bg-indigo-600 text-white" : "bg-slate-300 text-slate-500"
+                                  canAct
+                                    ? "bg-indigo-600 text-white"
+                                    : "bg-slate-300 text-slate-500"
                                 }`}
                                 onClick={() => {
                                   gs.phase = "select-target";
@@ -666,14 +822,18 @@ export default function TacticsExtended() {
                                   sk.area.kind === "Line"
                                     ? `直線${sk.rangeFront}`
                                     : sk.area.kind === "Rect"
-                                    ? `矩形${(sk.area as any).rectW}×${(sk.area as any).rectD}`
+                                    ? `矩形${(sk.area as any).rectW}×${
+                                        (sk.area as any).rectD
+                                      }`
                                     : `自身範圍${sk.rangeFront}`;
                                 return (
                                   <button
                                     key={sk.id}
                                     disabled={!canAct || u.mp < sk.mpCost}
                                     className={`px-3 py-1 rounded ${
-                                      canAct && u.mp >= sk.mpCost ? "bg-purple-600 text-white" : "bg-slate-300 text-slate-500"
+                                      canAct && u.mp >= sk.mpCost
+                                        ? "bg-purple-600 text-white"
+                                        : "bg-slate-300 text-slate-500"
                                     }`}
                                     onClick={() => {
                                       gs.phase = "select-target";

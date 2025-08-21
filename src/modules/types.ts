@@ -14,12 +14,12 @@ export type StatKey =
   | "DEF"
   | "MATK"
   | "MDEF"
+  | "CR"
+  | "BLK"
   | "ACC"
   | "EVA"
-  | "CR"
   | "SPD"
   | "MOV"
-  | "BLK"
   | "mpRegen";
 
 export type BuffSpec = {
@@ -61,19 +61,20 @@ export type Passive = {
 };
 
 export type UnitTemplate = {
-  cls: "Swordsman" | "Mage" | "Archer" | "Rogue" | "ADMIN";
+  cls: string;
   maxHP: number;
   maxMP: number;
   ATK: number;
   DEF: number;
   MATK: number;
   MDEF: number;
+  CR: number;
+  BLK: number;
   ACC: number;
   EVA: number;
-  CR: number;
   SPD: number;
   MOV: number;
-  BLK: number;
+
   passive: Passive;
   skills: Skill[];
   finalDR: { physical: number; magical: number };

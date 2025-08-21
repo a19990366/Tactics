@@ -1,0 +1,526 @@
+{
+"Swordsman": {
+  "cls": "Swordsman",
+  "maxHP": 700,
+  "maxMP": 10,
+  "ATK": 100,
+  "DEF": 150,
+  "MATK": 0,
+  "MDEF": 10,
+  "CR": 0.1,
+  "BLK": 0.3,
+  "ACC": 110,
+  "EVA": 60,
+  "SPD": 12,
+  "MOV": 2,
+  "passive": {
+    "name": "健體強身",
+    "baseMul": {
+      "DEF": 1.3
+    }
+  },
+  "skills": [
+    {
+      "id": "basic",
+      "name": "劈砍",
+      "type": "Physical",
+      "multiplier": 0,
+      "mpCost": 0,
+      "rangeFront": 1,
+      "isBasic": true,
+      "area": {
+        "kind": "Line"
+      },
+      "targetGroup": "single",
+      "targetTeam": "enemy"
+    },
+    {
+      "id": "power_strike",
+      "name": "奮力一擊",
+      "type": "Physical",
+      "multiplier": 0.75,
+      "mpCost": 6,
+      "rangeFront": 1,
+      "area": {
+        "kind": "Line"
+      },
+      "targetGroup": "single",
+      "targetTeam": "enemy",
+      "effects": {}
+    }
+  ],
+  "finalDR": {
+    "physical": 1,
+    "magical": 1
+  }
+},
+"Mage": {
+  "cls": "Mage",
+  "maxHP": 450,
+  "maxMP": 26,
+  "ATK": 40,
+  "DEF": 40,
+  "MATK": 170,
+  "MDEF": 150,
+  "CR": 0.05,
+  "BLK": 0,
+  "ACC": 110,
+  "EVA": 70,
+  "SPD": 10,
+  "MOV": 3,
+  "passive": {
+    "name": "魔力回復",
+    "baseAdd": {
+      "mpRegen": 1.5
+    }
+  },
+  "skills": [
+    {
+      "id": "basic",
+      "name": "敲擊",
+      "type": "Physical",
+      "multiplier": 0,
+      "mpCost": 0,
+      "rangeFront": 1,
+      "isBasic": true,
+      "area": {
+        "kind": "Line"
+      },
+      "targetGroup": "single",
+      "targetTeam": "enemy"
+    },
+    {
+      "id": "fireball_I",
+      "name": "火球術",
+      "type": "Magical",
+      "multiplier": 0.75,
+      "mpCost": 10,
+      "rangeFront": 4,
+      "area": {
+        "kind": "Line"
+      },
+      "targetGroup": "single",
+      "targetTeam": "enemy"
+    },
+    {
+      "id": "fireball_II",
+      "name": "火球術．大",
+      "type": "Magical",
+      "multiplier": 0.5,
+      "mpCost": 20,
+      "rangeFront": 0,
+      "area": {
+        "kind": "Rect",
+        "rectW": 3,
+        "rectD": 2
+      },
+      "targetGroup": "group",
+      "targetTeam": "enemy"
+    }
+  ],
+  "finalDR": {
+    "physical": 1,
+    "magical": 1
+  }
+},
+"Archer": {
+  "cls": "Archer",
+  "maxHP": 500,
+  "maxMP": 16,
+  "ATK": 110,
+  "DEF": 60,
+  "MATK": 0,
+  "MDEF": 40,
+  "CR": 0.3,
+  "BLK": 0,
+  "ACC": 130,
+  "EVA": 85,
+  "SPD": 14,
+  "MOV": 3,
+  "passive": {
+    "name": "百步穿楊",
+    "baseAdd": {
+      "CR": 0.05
+    }
+  },
+  "skills": [
+    {
+      "id": "basic",
+      "name": "射擊",
+      "type": "Physical",
+      "multiplier": 0,
+      "mpCost": 0,
+      "rangeFront": 3,
+      "isBasic": true,
+      "area": {
+        "kind": "Line"
+      },
+      "targetGroup": "single",
+      "targetTeam": "enemy",
+      "effects": {}
+    },
+    {
+      "id": "killing_shot",
+      "name": "必殺狙擊",
+      "type": "Physical",
+      "multiplier": 1,
+      "mpCost": 8,
+      "rangeFront": 5,
+      "area": {
+        "kind": "Line"
+      },
+      "targetGroup": "single",
+      "targetTeam": "enemy"
+    }
+  ],
+  "finalDR": {
+    "physical": 1,
+    "magical": 1
+  }
+},
+"Rogue": {
+  "cls": "Rogue",
+  "maxHP": 600,
+  "maxMP": 14,
+  "ATK": 140,
+  "DEF": 60,
+  "MATK": 0,
+  "MDEF": 40,
+  "CR": 0.2,
+  "BLK": 0.05,
+  "ACC": 125,
+  "EVA": 110,
+  "SPD": 16,
+  "MOV": 4,
+  "passive": {
+    "name": "盜賊奧義",
+    "baseAdd": {
+      "EVA": 20
+    }
+  },
+  "skills": [
+    {
+      "id": "basic",
+      "name": "刺擊",
+      "type": "Physical",
+      "multiplier": 0,
+      "mpCost": 0,
+      "rangeFront": 1,
+      "isBasic": true,
+      "area": {
+        "kind": "Line"
+      },
+      "targetGroup": "single",
+      "targetTeam": "enemy"
+    },
+    {
+      "id": "backstab",
+      "name": "背刺",
+      "type": "Physical",
+      "multiplier": 1,
+      "mpCost": 6,
+      "rangeFront": 1,
+      "area": {
+        "kind": "Line"
+      },
+      "targetGroup": "single",
+      "targetTeam": "enemy"
+    }
+  ],
+  "finalDR": {
+    "physical": 1,
+    "magical": 1
+  }
+},
+"RuneSwordsman": {
+  "cls": "RuneSwordsman",
+  "maxHP": 650,
+  "maxMP": 36,
+  "ATK": 75,
+  "DEF": 75,
+  "MATK": 150,
+  "MDEF": 180,
+  "CR": 0.075,
+  "BLK": 0.15,
+  "ACC": 110,
+  "EVA": 65,
+  "SPD": 13,
+  "MOV": 3,
+  "passive": {
+    "name": "符文契約 & 魔法護盾",
+    "baseAdd": {
+      "mpRegen": 1
+    },
+    "baseMul": {
+      "MATK": 1.15
+    },
+    "postDR": {
+      "magical": 0.85
+    }
+  },
+  "skills": [
+    {
+      "id": "basic",
+      "name": "劈砍",
+      "type": "Physical",
+      "multiplier": 0,
+      "mpCost": 0,
+      "rangeFront": 1,
+      "isBasic": true,
+      "area": {
+        "kind": "Line"
+      },
+      "targetGroup": "single",
+      "targetTeam": "enemy"
+    },
+    {
+      "id": "rune_slash",
+      "name": "符文斬",
+      "type": "Magical",
+      "multiplier": 0.9,
+      "mpCost": 8,
+      "rangeFront": 2,
+      "area": {
+        "kind": "Line"
+      },
+      "targetGroup": "group",
+      "targetTeam": "enemy"
+    },
+    {
+      "id": "rune_burst",
+      "name": "符文爆破",
+      "type": "Magical",
+      "multiplier": 0.6,
+      "mpCost": 12,
+      "rangeFront": 3,
+      "area": {
+        "kind": "SelfArea"
+      },
+      "targetGroup": "group",
+      "targetTeam": "enemy"
+    }
+  ],
+  "finalDR": {
+    "physical": 1,
+    "magical": 1
+  }
+},
+"Healer": {
+  "cls": "Healer",
+  "maxHP": 420,
+  "maxMP": 34,
+  "ATK": 40,
+  "DEF": 35,
+  "MATK": 90,
+  "MDEF": 120,
+  "CR": 0.05,
+  "BLK": 0,
+  "ACC": 110,
+  "EVA": 65,
+  "SPD": 10,
+  "MOV": 3,
+  "passive": {
+    "name": "聖光回溫 & 精神專注",
+    "baseAdd": {
+      "mpRegen": 3
+    },
+    "baseMul": {
+      "MDEF": 1.25
+    }
+  },
+  "skills": [
+    {
+      "id": "basic",
+      "name": "敲擊",
+      "type": "Physical",
+      "multiplier": 0,
+      "mpCost": 0,
+      "rangeFront": 1,
+      "isBasic": true,
+      "area": {
+        "kind": "Line"
+      },
+      "targetGroup": "single",
+      "targetTeam": "enemy"
+    },
+    {
+      "id": "big_heal",
+      "name": "聖療",
+      "type": "Magical",
+      "multiplier": 0,
+      "mpCost": 12,
+      "rangeFront": 3,
+      "area": {
+        "kind": "SelfArea"
+      },
+      "targetGroup": "single",
+      "targetTeam": "ally",
+      "effects": {
+        "healHP": 300
+      }
+    },
+    {
+      "id": "group_heal",
+      "name": "祈光",
+      "type": "Magical",
+      "multiplier": 0,
+      "mpCost": 16,
+      "rangeFront": 3,
+      "area": {
+        "kind": "SelfArea"
+      },
+      "targetGroup": "group",
+      "targetTeam": "ally",
+      "effects": {
+        "healHP": 150,
+        "restoreMP": 3
+      }
+    }
+  ],
+  "finalDR": {
+    "physical": 1,
+    "magical": 1
+  }
+},
+"Scout": {
+  "cls": "Scout",
+  "maxHP": 480,
+  "maxMP": 18,
+  "ATK": 100,
+  "DEF": 60,
+  "MATK": 0,
+  "MDEF": 40,
+  "CR": 0.25,
+  "BLK": 0,
+  "ACC": 130,
+  "EVA": 90,
+  "SPD": 16,
+  "MOV": 4,
+  "passive": {
+    "name": "觀察 & 機動",
+    "baseAdd": {
+      "ACC": 10,
+      "MOV": 1
+    }
+  },
+  "skills": [
+    {
+      "id": "basic",
+      "name": "射擊",
+      "type": "Physical",
+      "multiplier": 0,
+      "mpCost": 0,
+      "rangeFront": 4,
+      "isBasic": true,
+      "area": {
+        "kind": "Line"
+      },
+      "targetGroup": "single",
+      "targetTeam": "enemy"
+    },
+    {
+      "id": "snipe",
+      "name": "狙擊",
+      "type": "Physical",
+      "multiplier": 0.85,
+      "mpCost": 8,
+      "rangeFront": 6,
+      "area": {
+        "kind": "Line"
+      },
+      "targetGroup": "single",
+      "targetTeam": "enemy"
+    },
+    {
+      "id": "scatter_shot",
+      "name": "散射箭",
+      "type": "Physical",
+      "multiplier": 0.5,
+      "mpCost": 12,
+      "rangeFront": 0,
+      "area": {
+        "kind": "Rect",
+        "rectW": 3,
+        "rectD": 2
+      },
+      "targetGroup": "group",
+      "targetTeam": "enemy"
+    }
+  ],
+  "finalDR": {
+    "physical": 1,
+    "magical": 1
+  }
+},
+"Ninja": {
+  "cls": "Ninja",
+  "maxHP": 560,
+  "maxMP": 16,
+  "ATK": 150,
+  "DEF": 45,
+  "MATK": 0,
+  "MDEF": 30,
+  "CR": 0.3,
+  "BLK": 0.05,
+  "ACC": 120,
+  "EVA": 120,
+  "SPD": 16,
+  "MOV": 4,
+  "passive": {
+    "name": "影步 & 投擲高手",
+    "baseAdd": {
+      "SPD": 2,
+      "ACC": 8,
+      "CR": 0.03
+    }
+  },
+  "skills": [
+    {
+      "id": "basic",
+      "name": "投擲",
+      "type": "Physical",
+      "multiplier": 0,
+      "mpCost": 0,
+      "rangeFront": 2,
+      "isBasic": true,
+      "area": {
+        "kind": "Line"
+      },
+      "targetGroup": "single",
+      "targetTeam": "enemy"
+    },
+    {
+      "id": "double_shot",
+      "name": "連續投擲",
+      "type": "Physical",
+      "multiplier": 0.75,
+      "mpCost": 6,
+      "rangeFront": 4,
+      "area": {
+        "kind": "Line"
+      },
+      "targetGroup": "single",
+      "targetTeam": "enemy",
+      "effects": {}
+    },
+    {
+      "id": "shadow_strike",
+      "name": "風魔手裏劍",
+      "type": "Physical",
+      "multiplier": 0.5,
+      "mpCost": 9,
+      "rangeFront": 0,
+      "area": {
+        "kind": "Rect"
+      },
+      "targetGroup": "group",
+      "targetTeam": "enemy",
+      "effects": {}
+    }
+  ],
+  "finalDR": {
+    "physical": 1,
+    "magical": 1
+  }
+}
+}
