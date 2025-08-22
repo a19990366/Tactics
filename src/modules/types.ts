@@ -62,6 +62,7 @@ export type Passive = {
 
 export type UnitTemplate = {
   cls: string;
+  displayName: string;
   maxHP: number;
   maxMP: number;
   ATK: number;
@@ -94,6 +95,7 @@ export type Unit = {
   mp: number;
 
   cls: UnitTemplate["cls"];
+  displayName: UnitTemplate["displayName"];
   skills: Skill[];
   finalDRBase: { physical: number; magical: number };
 

@@ -1,4 +1,4 @@
-import { ClassKey } from "../modules/templates";
+import { ClassKey, Templates } from "../modules/templates";
 
 export function SelectSlot({
   value,
@@ -23,11 +23,14 @@ export function SelectSlot({
         onChange={(e) => onChange(e.target.value as any)}
       >
         <option value="">—</option>
-        {options.map((k) => (
-          <option key={k} value={k}>
-            {k}
-          </option>
-        ))}
+        {options.map((k) => {
+          const tpl = (Templates as any)[k];
+          return (
+            <option key={k} value={k}>
+              {tpl.displayName}
+            </option>
+          );
+        })}
       </select>
     </div>
   );

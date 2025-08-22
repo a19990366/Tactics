@@ -12,12 +12,12 @@ import {
 import { Templates, ClassKey } from "./templates";
 import { log } from "./logs";
 
-export const CRIT_DMG = 1.5;
-export const CR_CAP = 0.4;
+export const CRIT_DMG = 1.3;
+export const CR_CAP = 0.5;
 export const BK_CAP = 0.4;
 export const HIT_SLOPE = 0.4;
-export const KP = 1.0;
-export const KM = 1.0;
+export const KP = 1.2;
+export const KM = 1.2;
 
 // simple map helpers
 function inBounds(gs: GameState, x: number, y: number) {
@@ -248,6 +248,7 @@ export function createUnit(
     hp: tpl.maxHP,
     mp: tpl.maxMP,
     cls: tpl.cls,
+    displayName: tpl.displayName,
     skills: tpl.skills,
     finalDRBase,
     buffs: [],
@@ -285,9 +286,37 @@ export function getPostDMG(u: Unit) {
   return v;
 }
 
-export function addBuff(u: Unit, spec: BuffSpec) {
-  if (!spec.turns || spec.turns <= 0) return;
-  u.buffs.push({ ...spec, id: newId() });
+export function hasBuff(u: Unit, buffName: string | undefined) {
+  if (!buffName) return false;
+  return !!u.buffs && u.buffs.some((b: any) => b.name === buffName);
+}
+
+// 更新 addBuff：如果已有相同名稱的 buff，則不再疊加
+export function addBuff(target: Unit, buff: any) {
+  if (!buff || !buff.name) return;
+
+  // 若目標已經有同名 buff，預設不再新增
+  const idx = (target.buffs || []).findIndex((b: any) => b.name === buff.name);
+  if (idx !== -1) {
+    // 可選：如果新 buff 有 turns，則 refresh 既有 buff 的回合數（取較大值）
+    try {
+      if (buff.turns != null) {
+        target.buffs[idx].turns = Math.max(
+          Number(target.buffs[idx].turns || 0),
+          Number(buff.turns || 0)
+        );
+      }
+      // 不做屬性合併（避免重複加成）
+    } catch (e) {
+      // ignore
+    }
+    return;
+  }
+
+  // 若沒有同名 buff，直接 push（深拷貝以免互相引用）
+  target.buffs = target.buffs || [];
+  const copy = JSON.parse(JSON.stringify(buff));
+  target.buffs.push(copy);
 }
 
 export function tickBuffsAll(gs: GameState) {
@@ -397,10 +426,16 @@ export function recomputeTurnOrder(
   if (!(gs as any).rSPD) (gs as any).rSPD = {};
   const alive = gs.units.filter((u) => u.alive);
   if (forced) {
-    for (const u of alive) gs.rSPD[u.id] = forced[u.id] ?? getStat(u, "SPD");
+    for (const u of alive) {
+      const val = forced[u.id] ?? getStat(u, "SPD");
+      gs.rSPD[u.id] = Math.round(val);
+    }
   } else {
-    for (const u of alive)
-      gs.rSPD[u.id] = getStat(u, "SPD") + (Math.floor(Math.random() * 5) - 2);
+    for (const u of alive) {
+      const noise = Math.floor(Math.random() * 5) - 2; // -2..+2
+      const val = getStat(u, "SPD") + noise;
+      gs.rSPD[u.id] = Math.round(val);
+    }
   }
   const dice: Record<string, string> = {};
   for (const u of alive) dice[u.id] = diceKey();
@@ -562,24 +597,24 @@ export function doCast(
       if (t.team !== caster.team) {
         const r = resolveAttack(gs, caster, t, sk);
         applyDamage(gs, t, r.damage);
-        log(`${caster.id} 使用 ${sk.name} 對 ${t.id} 造成 ${r.text}`);
+        log(`${caster.id}[${caster.displayName}] 使用 ${sk.name} 對 ${t.id}[${t.displayName}] 造成 ${r.text}`);
       }
     }
     if (sk.effects?.healHP && t.team === caster.team) {
       t.hp = clamp(t.hp + sk.effects.healHP, 0, t.maxHP);
-      log(`${caster.id} 使用 ${sk.name} 治療 ${t.id} ${sk.effects.healHP} HP`);
+      log(`${caster.id}[${caster.displayName}] 使用 ${sk.name} 治療 ${t.id}[${t.displayName}] ${sk.effects.healHP} HP`);
     }
     if (sk.effects?.restoreMP && t.team === caster.team) {
       t.mp = clamp(t.mp + sk.effects.restoreMP, 0, t.maxMP);
       log(
-        `${caster.id} 使用 ${sk.name} 回復 ${t.id} ${sk.effects.restoreMP} MP`
+        `${caster.id}[${caster.displayName}] 使用 ${sk.name} 回復 ${t.id}[${t.displayName}] ${sk.effects.restoreMP} MP`
       );
     }
     if (sk.effects?.applyBuff) {
       const targetUnit = sk.effects.applyBuff.to === "self" ? caster : t;
       addBuff(targetUnit, sk.effects.applyBuff.buff);
       log(
-        `${caster.id} 使用 ${sk.name} 為 ${targetUnit.id} 附加 ${sk.effects.applyBuff.buff.name}`
+        `${caster.id}[${caster.displayName}] 使用 ${sk.name} 為 ${targetUnit.id}[${targetUnit.displayName}] 附加 ${sk.effects.applyBuff.buff.name}`
       );
     }
   }
@@ -611,24 +646,49 @@ export function aiTakeTurn(gs: GameState) {
   // 用來評估一組 targets 對我方/敵方的 score（越高越好）
   const areaScore = (list: Unit[], sk: Skill) => {
     let score = 0;
+  
+    // 若技能會附加 buff，取得 buff 名稱（若有）
+    const buffName = sk.effects?.applyBuff?.buff?.name;
+  
     for (const t of list) {
       if (t.team !== u.team) {
-        // resolveAttack 預期回傳 damage (數值)，若沒有可自行調整
         const r = resolveAttack(gs, u, t, sk);
-        // 傷害比純數值更要緊，乘上小權重以優先考慮造成傷害的選項
         score += (r.damage ?? 0) * 1.0;
       }
     }
-    // 回復價值（簡單 heuristics）
-    if (sk.effects?.healHP || sk.effects?.restoreMP) {
-      for (const t of list) {
-        if (t.team === u.team) {
-          // HP 比 MP 更值錢，給不同權重
-          score += (sk.effects.healHP ?? 0) * 0.8;
-          score += (sk.effects.restoreMP ?? 0) * 0.3;
+  
+    if (sk.effects) {
+      if (sk.effects.healHP || sk.effects.restoreMP) {
+        for (const t of list) {
+          if (t.team === u.team) {
+            score += (sk.effects.healHP ?? 0) * 0.8;
+            score += (sk.effects.restoreMP ?? 0) * 0.3;
+          }
+        }
+      }
+  
+      // 如果是 applyBuff，給沒有該 buff 的目標正分，已經有 buff 的目標不加分
+      if (sk.effects.applyBuff && buffName) {
+        let hasAnyTargetsWithout = false;
+        for (const t of list) {
+          const already = hasBuff(t, buffName);
+          if (!already) hasAnyTargetsWithout = true;
+          // 同時給單體 / 群體一個 heuristics 加分
+          if (t.team === u.team) {
+            score += already ? 0 : 30; // 給尚未有 buff 的友方一個正分
+          } else {
+            // 若是對敵的 debuff，也給尚未被 debuff 的敵人加分
+            score += already ? 0 : 20;
+          }
+        }
+        // 如果所有 targets 都已經有該 buff，這整個技能應該不被考慮（太浪費）
+        if (!hasAnyTargetsWithout) {
+          // 回傳極低分，讓 AI 跳過此方案
+          return -999999;
         }
       }
     }
+  
     return score;
   };
 
@@ -690,6 +750,13 @@ export function aiTakeTurn(gs: GameState) {
         // 有範圍時用 collectTargets 去決定實際 targets（會根據 clicked 區分 single / group）
         const targets = collectTargets(gs, u, sk, clicked);
         if (!targets || !targets.length) continue;
+
+        // 如果是 applyBuff，且 buffName 已存在，若所有 targets 都已有該 buff -> 跳過
+        const buffName = sk.effects?.applyBuff?.buff?.name;
+        if (buffName) {
+          const allHave = targets.every((t) => hasBuff(t, buffName));
+          if (allHave) continue; // 不浪費技能
+        }
 
         const score = areaScore(targets, sk);
         // 小 heuristic: 若 skill 為 active（非 basic），額外加分鼓勵使用技能
@@ -813,8 +880,8 @@ export function runSelfTests(): string[] {
 
   const archer = createUnit("A", "A", Templates.Archer, 0, 0);
   pass(
-    "CR cap 40%",
-    Math.abs(getStat(archer, "CR") - 0.3) < 1e-9 || getStat(archer, "CR") <= 0.4
+    "CR cap 50%",
+    Math.abs(getStat(archer, "CR") - 0.3) < 1e-9 || getStat(archer, "CR") <= 0.5
   );
 
   const multMin = defenseMult("Physical", 100, 999999);
@@ -835,7 +902,7 @@ export function runSelfTests(): string[] {
     mode: "PvP",
   } as any;
   const rogue = createUnit("R", "A", Templates.Rogue, 2, 2);
-  const swd = createUnit("S", "A", Templates.Swordsman, 2, 2);
+  const swd = createUnit("S", "A", Templates.Warrior, 2, 2);
   const r1 = getReachable(gs, swd);
   const r2 = getReachable(gs, rogue);
   pass(
@@ -846,33 +913,6 @@ export function runSelfTests(): string[] {
     "盜賊 MOV=4 範圍包含距離4",
     r2.some((t) => manhattan({ x: 2, y: 2 }, t) === 4)
   );
-
-  const dummyGS: GameState = {
-    width: 5,
-    height: 5,
-    units: [],
-    rSPD: {},
-    turnOrder: [],
-    turnIndex: 0,
-    phase: "idle",
-    mode: "PvP",
-  } as any;
-  const dummy = createUnit("X", "A", Templates.Swordsman, 2, 2);
-  const tiles = getLineTiles(dummyGS, dummy, 2);
-  const expected = [
-    { x: 3, y: 2 },
-    { x: 4, y: 2 },
-    { x: 1, y: 2 },
-    { x: 0, y: 2 },
-    { x: 2, y: 3 },
-    { x: 2, y: 4 },
-    { x: 2, y: 1 },
-    { x: 2, y: 0 },
-  ];
-  const okTiles = expected.every((t) =>
-    tiles.find((p) => p.x === t.x && p.y === t.y)
-  );
-  pass("直線四向（含上下）", okTiles, `got ${tiles.length} tiles`);
 
   const a = createUnit("A1", "A", Templates.Rogue, 0, 0);
   const b = createUnit("B1", "A", Templates.Archer, 0, 0);

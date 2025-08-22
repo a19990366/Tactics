@@ -67,6 +67,7 @@ function getDefaultTemplate(clsKey: string) {
   // 產生一個最小可用的 UnitTemplate（你可以按需求調整數值）
   const tpl: any = {
     cls: clsKey,
+    displayName: clsKey,
     maxHP: 1,
     maxMP: 1,
     ATK: 0,
@@ -481,7 +482,7 @@ export function ManageTemplates({ onClose }: { onClose?: () => void }) {
                     className="px-3 py-2 sticky left-0 align-top bg-white z-30"
                     style={{ minWidth: 240 }}
                   >
-                    <div className="font-medium">{cls}</div>
+                    <div className="font-medium">{tpl.displayName}</div>
                     <div className="text-xs text-slate-400 mt-1">
                       {passiveSummary(tpl.passive)}
                     </div>
@@ -511,18 +512,36 @@ export function ManageTemplates({ onClose }: { onClose?: () => void }) {
           <label className="text-sm">選擇職業：</label>
           <select
             value={selectedClass}
-            onChange={(e) => setSelectedClass(e.target.value)}
+            onChange={(e) => setSelectedClass(e.target.value as any)}
             className="border rounded px-2 py-1"
           >
-            {classes.map((c) => (
-              <option value={c} key={c}>
-                {c}
-              </option>
-            ))}
+            {classes.map((c) => {
+              // 優先從可編輯的 state templates 取；若不存在再 fallback 到 DefaultTemplates
+              const tpl = (templates as any)[c] ?? (DefaultTemplates as any)[c];
+              const label = tpl?.displayName ?? tpl?.cls ?? c;
+              return (
+                <option value={c} key={c}>
+                  {label}
+                </option>
+              );
+            })}
           </select>
 
           {selectedTpl && (
             <>
+              <div className="ml-4 text-sm text-slate-600 flex items-center gap-3">
+                <div>
+                  顯示名稱：
+                  <input
+                    className="border rounded px-2 py-1 text-sm ml-2"
+                    value={selectedTpl.displayName ?? ""}
+                    onChange={(e) =>
+                      updateField(selectedClass, "displayName", e.target.value)
+                    }
+                  />
+                </div>
+              </div>
+
               <div className="ml-4 text-sm text-slate-600 flex items-center gap-3">
                 <div>
                   被動名稱：
@@ -911,8 +930,8 @@ export function ManageTemplates({ onClose }: { onClose?: () => void }) {
                             updateSkill(selectedClass, idx, {
                               area: {
                                 kind: "Rect",
-                                rectW: (sk.area as any)?.rectW ?? 3,
-                                rectD: (sk.area as any)?.rectD ?? 2,
+                                rectW: (sk.area as any)?.rectW ?? 0,
+                                rectD: (sk.area as any)?.rectD ?? 0,
                               },
                             });
                           } else {
@@ -940,7 +959,7 @@ export function ManageTemplates({ onClose }: { onClose?: () => void }) {
                           <input
                             type="number"
                             className="border rounded px-2 py-1 w-full"
-                            value={((sk.area as any)?.rectW ?? 3) as any}
+                            value={((sk.area as any)?.rectW ?? 0) as any}
                             onChange={(e) =>
                               updateSkill(selectedClass, idx, {
                                 area: {
@@ -958,7 +977,7 @@ export function ManageTemplates({ onClose }: { onClose?: () => void }) {
                           <input
                             type="number"
                             className="border rounded px-2 py-1 w-full"
-                            value={((sk.area as any)?.rectD ?? 2) as any}
+                            value={((sk.area as any)?.rectD ?? 0) as any}
                             onChange={(e) =>
                               updateSkill(selectedClass, idx, {
                                 area: {

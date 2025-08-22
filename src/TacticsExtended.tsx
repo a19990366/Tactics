@@ -36,8 +36,8 @@ export default function TacticsExtended() {
     p1: ClassKey[];
     p2: ClassKey[];
   }>(() => ({
-    p1: ["Swordsman", "Mage", "Archer", "Rogue"],
-    p2: ["Swordsman", "Mage", "Archer", "Rogue"],
+    p1: ["Warrior", "Mage", "Archer", "Rogue"],
+    p2: ["Warrior", "Mage", "Archer", "Rogue"],
   }));
   const [gs, setGs] = useState<GameState>(() =>
     initGameWithRosters("PvE", lastRoster.p1, lastRoster.p2)
@@ -303,14 +303,9 @@ export default function TacticsExtended() {
 
     // 1) 傷害（multiplier 與 type）
     if (typeof sk.multiplier === "number" && sk.multiplier !== 0 && sk.type) {
-      // 顯示倍率：因為你的專案曾用 1+multiplier 的方式，保留彈性：
-      // 若 multiplier 看起來像額外加成 (<1) 則顯示 1+multiplier，否則顯示 multiplier 本身
       let mult = Number(sk.multiplier);
       if (!Number.isFinite(mult)) mult = 0;
-      const displayMult =
-        mult > 0 && mult < 1
-          ? Math.round((1 + mult) * 100) / 100
-          : Math.round(mult * 100) / 100;
+      const displayMult = 1 + mult;
       const t = String(sk.type).toLowerCase();
       const typeText =
         t.includes("phys") || t.includes("physical")
@@ -604,7 +599,7 @@ export default function TacticsExtended() {
                           <div className="font-semibold">
                             {u.id}{" "}
                             <span className="text-xs text-slate-500">
-                              [{u.cls}]
+                              [{u.displayName}]
                             </span>
                           </div>
                           <div className="flex gap-2">
@@ -678,9 +673,6 @@ export default function TacticsExtended() {
               <div className="p-3 rounded-xl border shadow-sm">
                 <div className="flex items-center justify-between">
                   <div className="font-semibold">回合順序</div>
-                  <div className="text-xs text-slate-500">
-                    （每回合依 rSPD 重算）
-                  </div>
                 </div>
                 <div className="flex gap-2 mt-2 flex-wrap">
                   {gs.turnOrder.map((id, idx) => {
@@ -814,7 +806,7 @@ export default function TacticsExtended() {
                                   setGs({ ...gs });
                                 }}
                               >
-                                {basic.name}（0 MP / 直線{basic.rangeFront}）
+                                {basic.name}（直線{basic.rangeFront}）
                               </button>
 
                               {actives.map((sk) => {
@@ -843,7 +835,7 @@ export default function TacticsExtended() {
                                     }}
                                     title={skillTooltip(sk)}
                                   >
-                                    {sk.name}（{sk.mpCost} MP / {areaLabel}）
+                                    {sk.name}（{sk.mpCost == 0 ? "" : sk.mpCost + "MP / "} {areaLabel}）
                                   </button>
                                 );
                               })}

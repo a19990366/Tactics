@@ -54,7 +54,7 @@ export function Tile({
               isA ? "bg-blue-500" : "bg-red-500"
             }`}
           >
-            {u.cls[0]}
+            {u.displayName[0]}
           </div>
         </>
       )}
